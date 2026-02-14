@@ -1,0 +1,214 @@
+{
+  "catalog_version": "2026-02-14",
+  "as_of_date": "2026-02-14",
+  "policy": "仅保留最新有效的国家官方依据（CNIPA/GOV）。",
+  "sources": [
+    {
+      "source_id": "cnipa_patent_law_2020",
+      "source_title": "中华人民共和国专利法（2020修正）",
+      "source_url": "https://www.cnipa.gov.cn/art/2020/11/23/art_97_155167.html",
+      "official_org": "国家知识产权局",
+      "effective_date": "2021-06-01"
+    },
+    {
+      "source_id": "cnipa_impl_rules_2023",
+      "source_title": "中华人民共和国专利法实施细则（2023修订）",
+      "source_url": "https://www.cnipa.gov.cn/art/2023/12/21/art_98_189197.html",
+      "official_org": "国家知识产权局",
+      "effective_date": "2024-01-20"
+    },
+    {
+      "source_id": "gov_decree_769",
+      "source_title": "国务院关于修改《中华人民共和国专利法实施细则》的决定（国务院令第769号）",
+      "source_url": "https://www.gov.cn/zhengce/content/202312/content_6921633.htm",
+      "official_org": "国务院",
+      "effective_date": "2024-01-20"
+    },
+    {
+      "source_id": "cnipa_order_77",
+      "source_title": "规范申请专利行为的规定（局令第77号）",
+      "source_url": "https://www.cnipa.gov.cn/art/2023/12/21/art_2790_189475.html",
+      "official_org": "国家知识产权局",
+      "effective_date": "2024-01-20"
+    },
+    {
+      "source_id": "cnipa_order_84",
+      "source_title": "国家知识产权局关于修改《专利审查指南》的决定（局令第84号）",
+      "source_url": "https://www.cnipa.gov.cn/art/2025/11/13/art_99_202568.html",
+      "official_org": "国家知识产权局",
+      "effective_date": "2026-01-01"
+    }
+  ],
+  "rules": [
+    {
+      "rule_id": "PL-A05",
+      "title": "违法、公序良俗与遗传资源限制",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第5条",
+      "legal_level": "法律",
+      "requirement_summary": "违反法律、社会公德或妨害公共利益的发明创造，不授予专利权；违法获取或利用遗传资源并依赖其完成的发明创造，不授予专利权。",
+      "keywords": ["违法", "社会公德", "公共利益", "遗传资源"],
+      "writing_checks": ["避免把违法用途或明显违反公序良俗的场景写入技术方案。"]
+    },
+    {
+      "rule_id": "PL-A09",
+      "title": "同样发明创造仅授予一项专利",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第9条",
+      "legal_level": "法律",
+      "requirement_summary": "同样的发明创造只能授予一项专利，适用先申请原则。",
+      "keywords": ["同样发明", "一项专利", "先申请"],
+      "writing_checks": ["提交前应做重复授权风险核查与在先申请检索。"]
+    },
+    {
+      "rule_id": "PL-A22",
+      "title": "授权三性要求",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第22条",
+      "legal_level": "法律",
+      "requirement_summary": "发明和实用新型应具备新颖性、创造性和实用性。",
+      "keywords": ["新颖性", "创造性", "实用性"],
+      "writing_checks": ["说明书应突出区别技术特征与可验证技术效果。"]
+    },
+    {
+      "rule_id": "PL-A25",
+      "title": "不授予专利权的主题",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第25条",
+      "legal_level": "法律",
+      "requirement_summary": "科学发现、智力活动规则和方法、疾病诊断和治疗方法、动植物品种等不授予专利权（依法存在例外）。",
+      "keywords": ["不授予", "智力活动规则和方法", "疾病诊断", "动植物品种"],
+      "writing_checks": ["软件相关方案要写明技术手段和技术效果，避免抽象规则化表达。"]
+    },
+    {
+      "rule_id": "PL-A26",
+      "title": "申请文件与支持要求",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第26条",
+      "legal_level": "法律",
+      "requirement_summary": "发明专利申请应提交说明书、权利要求书和摘要等；说明书应清楚完整并可实现；权利要求应以说明书为依据，清楚简要限定保护范围。",
+      "keywords": ["说明书", "权利要求书", "摘要", "清楚完整", "清楚简要", "保护范围"],
+      "writing_checks": ["校验摘要/权利要求书/说明书齐全，且权利要求受说明书支持。"]
+    },
+    {
+      "rule_id": "PL-A31",
+      "title": "单一性要求",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第31条",
+      "legal_level": "法律",
+      "requirement_summary": "一件发明专利申请应限于一项发明；属于一个总的发明构思的，可合并提出。",
+      "keywords": ["单一性", "总的发明构思"],
+      "writing_checks": ["多独立权利要求时应说明共享技术构思与共同特征。"]
+    },
+    {
+      "rule_id": "PL-A64",
+      "title": "保护范围与解释依据",
+      "source_id": "cnipa_patent_law_2020",
+      "article_or_section": "第64条",
+      "legal_level": "法律",
+      "requirement_summary": "发明专利权保护范围以权利要求内容为准，说明书及附图用于解释权利要求。",
+      "keywords": ["保护范围", "权利要求", "说明书", "附图"],
+      "writing_checks": ["权利要求应可独立定义边界，说明书负责支撑和解释。"]
+    },
+    {
+      "rule_id": "IR-A11",
+      "title": "诚实信用原则",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第11条",
+      "legal_level": "行政法规",
+      "requirement_summary": "专利申请和行使专利权应遵循诚实信用原则，不得弄虚作假。",
+      "keywords": ["诚实信用", "不得弄虚作假"],
+      "writing_checks": ["不得编造实验数据、实施例或技术效果证据。"]
+    },
+    {
+      "rule_id": "IR-A17",
+      "title": "发明申请文件清单",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第17条",
+      "legal_level": "行政法规",
+      "requirement_summary": "申请发明专利应提交请求书、说明书及其摘要、权利要求书等，必要时提交附图。",
+      "keywords": ["请求书", "说明书", "摘要", "权利要求书", "附图"],
+      "writing_checks": ["输出需提示法定文件构成和附图要求。"]
+    },
+    {
+      "rule_id": "IR-A20",
+      "title": "说明书结构与表述要求",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第20条",
+      "legal_level": "行政法规",
+      "requirement_summary": "说明书应写明技术领域、背景技术、发明内容、附图说明和具体实施方式；语言规范、语句清楚，不得使用商业性宣传用语。",
+      "keywords": ["技术领域", "背景技术", "发明内容", "附图说明", "具体实施方式", "宣传用语"],
+      "writing_checks": ["检查说明书五段结构和禁用宣传词。"]
+    },
+    {
+      "rule_id": "IR-A22",
+      "title": "权利要求写作基本规则",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第22条",
+      "legal_level": "行政法规",
+      "requirement_summary": "权利要求应写明技术特征并编号，术语与说明书一致；除绝对必要外，不得使用“如图所示”等表达。",
+      "keywords": ["技术特征", "编号", "术语一致", "如图所示"],
+      "writing_checks": ["命中“如图所示/如说明书所述”时给出风险提示。"]
+    },
+    {
+      "rule_id": "IR-A23",
+      "title": "独立与从属权利要求要求",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第23条",
+      "legal_level": "行政法规",
+      "requirement_summary": "权利要求书应包含独立权利要求，可有从属权利要求；独立权利要求应记载解决技术问题的必要技术特征；从属权利要求应进一步限定。",
+      "keywords": ["独立权利要求", "从属权利要求", "必要技术特征", "进一步限定"],
+      "writing_checks": ["检查独立权利要求完整性与从属权利要求限定关系。"]
+    },
+    {
+      "rule_id": "IR-A24",
+      "title": "独立权利要求格式",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第24条",
+      "legal_level": "行政法规",
+      "requirement_summary": "独立权利要求通常按前序部分与特征部分撰写。",
+      "keywords": ["前序部分", "特征部分", "其特征在于"],
+      "writing_checks": ["权利要求1建议采用“前序+特征”结构。"]
+    },
+    {
+      "rule_id": "IR-A25",
+      "title": "从属权利要求引用规则",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第25条",
+      "legal_level": "行政法规",
+      "requirement_summary": "从属权利要求应有引用部分和限定部分；多项从属应择一引用，不得作为另一多项从属基础。",
+      "keywords": ["引用部分", "限定部分", "多项从属", "择一引用"],
+      "writing_checks": ["命中“权利要求1或2或3”时提示人工核查多项从属格式。"]
+    },
+    {
+      "rule_id": "IR-A26",
+      "title": "摘要与摘要附图要求",
+      "source_id": "cnipa_impl_rules_2023",
+      "article_or_section": "第26条",
+      "legal_level": "行政法规",
+      "requirement_summary": "摘要应写明名称、技术领域、技术问题、技术方案要点和主要用途；有附图时应提供最能说明技术特征的摘要附图；不得使用商业宣传语。",
+      "keywords": ["摘要", "技术问题", "技术方案要点", "主要用途", "摘要附图"],
+      "writing_checks": ["摘要控制在300字内，并避免宣传语。"]
+    },
+    {
+      "rule_id": "NR77-A2A3",
+      "title": "非正常申请行为规制",
+      "source_id": "cnipa_order_77",
+      "article_or_section": "第2条、第3条",
+      "legal_level": "部门规章",
+      "requirement_summary": "专利申请应基于真实发明创造活动，针对编造、拼凑、随机生成等非正常申请行为设有审查与处置机制。",
+      "keywords": ["局令77号", "非正常申请", "真实发明创造", "审查处置"],
+      "writing_checks": ["在输出中保留“需人工核验真实研发证据”的提示。"]
+    },
+    {
+      "rule_id": "GL84-2025",
+      "title": "最新审查指南修订口径",
+      "source_id": "cnipa_order_84",
+      "article_or_section": "修订决定（2026-01-01生效）",
+      "legal_level": "审查规范",
+      "requirement_summary": "局令84号为当前最新生效审查指南修订，应作为创造性、支持性等审查判断口径依据。",
+      "keywords": ["局令84号", "审查指南", "创造性", "支持性", "2026-01-01"],
+      "writing_checks": ["最终人工复核应按局令84号生效后的审查指南执行。"]
+    }
+  ]
+}
