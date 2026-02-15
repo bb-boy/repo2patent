@@ -54,31 +54,9 @@ bash scripts/00_check_env.sh  # Linux/macOS
 
 Python 依赖包已包含在 `.vendor/` 目录中，无需额外安装。
 
-### 基本使用
+### 使用说明
 
-```bash
-# 1. 准备仓库（如果是远程仓库）
-bash scripts/01_clone_repo.sh <your-repo-url> [branch]
-
-# 2. 提取代码事实
-python scripts/02_repo_inventory.py --repo work/repo
-
-# 3. 查询官方规则
-python scripts/query_official_rules.py --query "软件发明"
-
-# 4. 生成专利草稿
-# 由 LLM 助手基于语料和代码事实直接写作
-# 结果保存到 draft/patent_draft.md
-
-# 5. 校验草稿质量
-python scripts/04_validate_draft.py --input draft/patent_draft.md
-
-# 6. 生成附图
-python scripts/generate_figures.py --input draft/patent_draft.md
-
-# 7. 渲染 DOCX
-python scripts/05_render_docx.py --input draft/patent_draft.md --output out/
-```
+关于如何调用该 `SKILL`：请参阅 Codex 官方的 Skill 使用说明与本仓库的 `SKILL.md`，推荐通过 Codex/Agent 平台的标准流程来触发本技能的写作和校验步骤。
 
 ## 📂 项目结构
 
