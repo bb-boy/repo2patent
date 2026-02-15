@@ -12,7 +12,7 @@ description: |
 1. 写作对象是“仓库对应的技术方案”，不是工具流程。
 2. 先学语料再写，不允许直接套固定文案。
 3. 写作阶段不依赖硬编码模板脚本拼句。
-4. 脚本只用于：事实提取、法规检索、格式校验、DOCX渲染。
+4. 脚本可用于：环境检查、仓库准备、仓库索引、法规检索、格式校验、附图生成、DOCX渲染；技术语义提取由助手完成。
 5. 全文术语统一，摘要/权利要求/说明书三文一致。
 6. `references/patent-draft-template.md` 仅可用于章节骨架参考，不可用于正文内容拼接。
 7. 发明名称必须完整一致地出现在 `#` 标题、摘要首句主题和权利要求书主题名称中，不得截断或简写。
@@ -30,7 +30,7 @@ description: |
 - `commit`
 - `legal_query`（可多次）
 - `target_claims`（默认 18）
-- `review_cycles`（默认 2）
+- `review_cycles`（默认 2，仅作用于 Round4 审查修订迭代次数；Round1-3固定执行）
 - `invention_name`
 - `applicant`
 - `inventors`
@@ -47,7 +47,7 @@ description: |
 # 按需调用脚本（需要什么调用什么）
 - 环境检查：`scripts/00_check_env.ps1` 或 `scripts/00_check_env.sh`
 - 仓库准备（远程仓库才需要）：`scripts/01_clone_repo.sh`
-- 代码事实提取：`scripts/02_repo_inventory.py`
+- 仓库索引提取：`scripts/02_repo_inventory.py`
 - 法规检索：`scripts/query_official_rules.py`
 - 正文写作：由助手基于语料与源码直接生成（不调用正文生成脚本）
 - 质量校验：`scripts/04_validate_draft.py`
@@ -58,26 +58,32 @@ description: |
 1. 环境与仓库：
    - 运行 `scripts/00_check_env.*`。
    - 优先复用本地仓库；仅在远程仓库场景调用 `scripts/01_clone_repo.sh`。
-2. 事实提取：
-   - 运行 `scripts/02_repo_inventory.py`，抽取模块、方法、接口、消息主题、数据流。
-3. 法规检索：
+2. 索引种子提取（脚本）：
+   - 运行 `scripts/02_repo_inventory.py`，生成 `analysis/context.json`（仅含目录列表与文档类文件清单）。
+   - 本步骤不输出最终技术结论，不替代语义分析。
+3. 源码语义提取（助手执行）：
+   - 由助手基于第2步索引种子分轮读取源码，提取模块职责、接口、消息主题、数据流、异常分支。
+   - 每条结论必须绑定证据锚点（`file:line`）；无证据结论不得进入最终上下文。
+   - 对大仓库采用分轮与优先级控制，避免无差别全量细读。
+4. 法规检索：
    - 运行 `scripts/query_official_rules.py`，生成当前规则清单。
    - 先完成“官方规范核对清单”，再进入写作阶段。
-4. 语料学习（必须）：
+5. 语料学习（必须）：
    - 读取 `references/local-patent-style-skill.md`。
    - 扫描目录内 `CN*.txt` 专利文本，归纳结构和句式，仅在不与官方规范冲突时采用。
-5. 语料驱动自由写作（非硬编码）：
+6. 语料驱动自由写作（非硬编码）：
    - 由助手直接写作，不调用正文生成脚本。
    - Round1：技术交底（问题-方案-效果-证据映射）。
    - Round2：权利要求（独立项完整 + 从属项递进）。
    - Round3：说明书（技术领域/背景/发明内容/附图/实施方式），重点展开“发明内容+具体实施方式”并写清输入、处理、输出与异常路径。
    - Round4：审查视角修订（清楚性、支持性、单一性、术语一致性）+ 低信息密度句润色（补足条件、动作、结果）。
-6. 校验与渲染：
+   - Round1-3 固定执行；`review_cycles` 仅控制 Round4 的重复修订次数。
+7. 校验与渲染：
    - 运行 `scripts/04_validate_draft.py`。
    - 修正校验命中的模糊风险词（如“强/弱/较好/高效”等不可验证表述）。
    - 运行 `scripts/generate_figures.py` 与 `scripts/05_render_docx.py`。
    - 附图必须通过质量门槛：分辨率、清晰度、可读字号、标号完整、非空白图。
-   - 回读 `draft/patent_draft.md` 与 `output/*.docx` 结果，确认标题和章节渲染完整。
+   - 回读 `draft/patent_draft.md` 与 `out/*.docx` 结果，确认标题和章节渲染完整。
 
 # 禁止事项
 - 禁止把“解析代码生成专利”写进摘要或权利要求。
