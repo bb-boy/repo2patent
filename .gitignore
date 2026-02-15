@@ -1,0 +1,37 @@
+# repo2patent .gitignore
+
+# Outputs and generated documents
+out/
+output/
+draft/
+draft/figures/
+analysis/
+work/
+
+
+# Python cache and artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Office backups/temporary
+~$*
+
+# IDE / editor directories
+.vscode/
+.idea/
+
+# Ignore large generated assets (optional)
+# Uncomment if you want to ignore example sample images
+# assets/patent_draft_sample.png

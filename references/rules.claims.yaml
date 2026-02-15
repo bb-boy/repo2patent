@@ -1,0 +1,62 @@
+{
+  "profiles": {
+    "lite": {
+      "min_claims": 8,
+      "target_claims_low": 8,
+      "target_claims_high": 12,
+      "min_independent_claims": 2
+    },
+    "standard": {
+      "min_claims": 12,
+      "target_claims_low": 12,
+      "target_claims_high": 18,
+      "min_independent_claims": 2
+    },
+    "full": {
+      "min_claims": 18,
+      "target_claims_low": 18,
+      "target_claims_high": 25,
+      "min_independent_claims": 2
+    }
+  },
+  "required_phrases_first_claim": [
+    "其特征在于",
+    "包括"
+  ],
+  "negative_scope_words": [
+    "不包括",
+    "不含有",
+    "不采用",
+    "不呈",
+    "无"
+  ],
+  "discouraged_ambiguous_words": [
+    "大约",
+    "左右",
+    "基本上",
+    "接近",
+    "最好",
+    "尤其是",
+    "必要时",
+    "尽量",
+    "优选"
+  ],
+  "disallow_figure_reference_words": [
+    "如图",
+    "附图"
+  ],
+  "term_consistency_groups": [
+    [
+      "数据源",
+      "来源端"
+    ],
+    [
+      "消息中间件",
+      "消息队列"
+    ],
+    [
+      "处理模块",
+      "处理单元"
+    ]
+  ]
+}
