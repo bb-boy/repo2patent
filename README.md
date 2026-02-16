@@ -1,256 +1,169 @@
 # repo2patent
 
-一个将软件代码仓库自动转换为中国发明专利申请文档的 **Codex Skill**。基于代码库事实和本地专利语料，生成标准的专利申请文档（摘要、权利要求书、说明书、附图说明及 DOCX 格式文档）。
+`repo2patent` 是一个面向 Codex 的技能（skill），用于把软件仓库转成中国发明专利草案，并输出 `DOCX` 成品。
 
-## 🎯 核心功能
+该技能采用“源码事实主线 + 语料风格迁移”的方式：
+- 技术事实来自源码阅读与证据锚点（`file:line`）。
+- 写作风格来自工作目录专利语料（支持 `CN*.txt / CN*.pdf`）。
+- 如语料风格与官方规范冲突，始终以官方规范为准。
 
-- **代码事实提取**：自动分析仓库的模块结构、接口设计、数据流和技术方案
-- **语料驱动写作**：学习本地专利语料风格，遵守国家知识产权局（CNIPA）官方规范
-- **多轮审查修订**：4 轮迭代写作（技术交底 → 权利要求 → 说明书 → 审查修订）
-- **质量校验**：验证术语一致性、清楚性、支持性、低信息密度检测
-- **附图生成**：优先使用 Graphviz 自动布局，回退 PIL 手动渲染
-- **DOCX 输出**：生成可提交的 DOCX 格式专利申请文档，保证渲染一致性
+## 1. 核心原则
 
-## 📋 技术特点
+1. 专利写作对象是“仓库对应的技术方案”，不是“工具流程”。
+2. `02_repo_inventory.py` 只做索引种子，不输出最终技术结论。
+3. 源码语义提取由助手分轮执行，并绑定 `file:line` 证据。
+4. 语料学习只影响表达风格，不替代技术事实。
+5. 不要求先匹配“技术母型”；母型不是前置门槛。
+6. Round1-3 固定执行，`review_cycles` 仅控制 Round4 重复修订次数。
+7. 每次实质改稿后必须重新校验与渲染。
 
-### ⚠️ 官方规范优先（强制）
-- 依据《专利法》第 26 条、第 59 条和《专利审查指南》
-- 严格遵守清楚性、简要性、完整性和支持性要求
-- **本地语料风格与官方规范冲突时，一律以官方规范为准**
+## 2. 输入与输出
 
-### 语料驱动写作（=非硬编码）
-- 不使用固定模板拼接，基于真实语料学习写作风格
-- 禁止将"代码解析流程"写入专利，专利对象是仓库实现的技术方案
-- 脚本（代码事实提取、法规检索、格式校验、DOCX渲染）与写作阶段完全解耦
-- 润色必须受源码事实约束：允许扩写处理条件/执行路径/输出结果/异常分支，禁止引入无依据参数
+输入（必填）：
+- `repo_url_or_path`
 
-### 术语与一致性
-- 摘要、权利要求、说明书三文一致
-- **发明名称**必须完整一致地出现在标题、摘要首句、权利要求主题名称，不得截断或简写
-- 全文术语统一，可逐项对应
+输入（可选）：
+- `branch`
+- `commit`
+- `legal_query`（可多次）
+- `target_claims`（默认 18）
+- `review_cycles`（默认 2，仅作用于 Round4）
+- `invention_name`
+- `applicant`
+- `inventors`
+- `constraints`
 
-### 质量控制
-- 自动检测模糊表述、不可验证用语、术语不一致
-- 低信息密度检测：对"仅有结论、缺少条件/动作/结果"的短句进行适度润色
-- 渲染一致性检验：Markdown 与 DOCX 标题完整一致（如"及系统"不会丢失）
-- 每轮实质改稿后必须重新执行格式校验与 DOCX 渲染
+输出：
+- `analysis/context.json`
+- `analysis/corpus_style_profile.md`
+- `analysis/legal_rules_lookup.md`
+- `analysis/llm_rounds/`
+- `analysis/validation_report.md`
+- `draft/patent_draft.md`
+- `out/patent_draft_<repo_slug>_YYYYMMDD[_HHMMSS].docx`
 
-## 🚀 快速开始
+## 3. 工作流（严格顺序）
 
-### 环境要求
+1. 环境与仓库准备  
+运行 `scripts/00_check_env.ps1` 或 `scripts/00_check_env.sh`；远程仓库时调用 `scripts/01_clone_repo.sh`。
 
-- Python 3.8+
-- 可选：Graphviz（用于生成高质量附图）
-- 可选：Git（用于克隆远程仓库）
+2. 索引种子提取（脚本）  
+运行 `scripts/02_repo_inventory.py` 生成 `analysis/context.json`。  
+该文件仅包含目录与文档类文件清单，用于导航。
 
-### 安装依赖
+3. 源码语义提取（助手）  
+助手基于第2步结果分轮读取源码，提取模块职责、接口、数据流、异常分支。  
+每条结论都要绑定 `file:line` 证据。
+
+4. 法规检索（脚本）  
+运行 `scripts/query_official_rules.py` 生成 `analysis/legal_rules_lookup.md`。  
+先完成官方规范核对，再进入写作。
+
+5. 语料学习（脚本 + 参考）  
+运行：
+```bash
+python scripts/02b_corpus_style_profile.py --corpus-dir <workdir> --out analysis/corpus_style_profile.md
+```
+语料来源支持 `CN*.txt / CN*.pdf`。  
+随后读取：
+- `analysis/corpus_style_profile.md`
+- `references/local-patent-style-skill.md`
+- `references/corpus-style-notes-from-workdir.md`
+
+6. 四轮写作（助手）  
+- Round1：技术交底（问题-方案-效果-证据映射）  
+- Round2：权利要求（独立项完整 + 从属项递进）  
+- Round3：说明书（五段结构 + 输入/处理/输出/异常）  
+- Round4：审查修订（清楚性、支持性、单一性、术语一致性、低信息密度润色）
+
+7. 校验与渲染（脚本）  
+运行 `scripts/04_validate_draft.py`，然后 `scripts/generate_figures.py`，最后 `scripts/05_render_docx.py`。
+
+## 4. 关键脚本职责
+
+- `scripts/02_repo_inventory.py`  
+只输出“目录 + 文档类文件”，不做最终语义判断。
+
+- `scripts/02b_corpus_style_profile.py`  
+扫描工作目录 `CN*.txt / CN*.pdf`，生成语料风格画像。  
+若 PDF 不可提取文本，会在报告中标记可读性。
+
+- `scripts/query_official_rules.py`  
+从规则库生成法规检索结果，约束写作边界。
+
+- `scripts/04_validate_draft.py`  
+检查结构、术语一致性、模糊词、权项数量、实施方式密度等。
+
+- `scripts/generate_figures.py`  
+优先 Graphviz 生成附图，失败时回退。
+
+- `scripts/05_render_docx.py`  
+将 Markdown 草稿渲染为 DOCX，嵌入附图并保持标题完整性。
+
+## 5. 快速执行示例
+
+在 `repo2patent/` 目录下：
 
 ```bash
-# 检查环境
-.\scripts\00_check_env.ps1  # Windows
-# 或
-bash scripts/00_check_env.sh  # Linux/macOS
+# 1) 环境检查
+powershell -ExecutionPolicy Bypass -File scripts/00_check_env.ps1
+
+# 2) 索引
+python scripts/02_repo_inventory.py --repo work/repo --out analysis/context.json
+
+# 3) 法规检索
+python scripts/query_official_rules.py --rules references/official_rules_catalog.json --context analysis/context.json --out analysis/legal_rules_lookup.md
+
+# 4) 语料画像（支持 txt/pdf）
+python scripts/02b_corpus_style_profile.py --corpus-dir .. --out analysis/corpus_style_profile.md
+
+# 5) 产出草稿后校验+渲染
+python scripts/04_validate_draft.py --in draft/patent_draft.md --out analysis/validation_report.md --ambiguous assets/STOPWORDS_ambiguous.txt --profile full --rules-dir references --context analysis/context.json --coverage-out analysis/coverage_report.md
+python scripts/generate_figures.py --context analysis/context.json --out-dir draft/figures
+python scripts/05_render_docx.py --in draft/patent_draft.md --out out/patent_draft_<repo_slug>_YYYYMMDD_HHMMSS.docx --figures-dir draft/figures
 ```
 
-Python 依赖包已包含在 `.vendor/` 目录中，无需额外安装。
+## 6. 目录说明
 
-### 使用说明
-
-关于如何调用该 `SKILL`：请参阅 Codex 官方的 Skill 使用说明与本仓库的 `SKILL.md`，推荐通过 Codex/Agent 平台的标准流程来触发本技能的写作和校验步骤。
-
-## 📂 项目结构
-
-```
+```text
 repo2patent/
-├── agents/              # LLM 代理配置
-├── analysis/            # 分析结果和中间文件
-│   ├── context.json              # 代码事实提取结果
-│   ├── legal_rules_lookup.md     # 法规检索结果
-│   ├── validation_report.md      # 质量校验报告
-│   └── llm_rounds/               # 各轮写作中间稿
-├── assets/              # 资源文件
-│   └── STOPWORDS_ambiguous.txt   # 模糊词库
-├── draft/               # 生成的专利草稿（.gitignore）
-│   ├── patent_draft.md           # Markdown 格式草稿
-│   └── figures/                  # 附图源文件
-├── out/                 # 最终输出（.gitignore）
-│   └── patent_draft_*.docx       # DOCX 格式成品
-├── output/              # 备用输出目录（.gitignore）
-├── references/          # 参考文件和语料
-│   ├── cn111177271a-style-notes.md
-│   ├── cnipa-patent-writing-2017-notes.md
-│   ├── local-patent-style-skill.md
-│   ├── official_rules_catalog.json
-│   ├── patent-draft-template.md
-│   └── patent-writing-rules.md
-├── scripts/             # 工具脚本
-│   ├── 00_check_env.*            # 环境检查
-│   ├── 01_clone_repo.sh          # 仓库克隆
-│   ├── 02_repo_inventory.py      # 代码事实提取
-│   ├── 04_validate_draft.py      # 草稿校验
-│   ├── 05_render_docx.py         # DOCX 渲染
-│   ├── generate_figures.py       # 附图生成
-│   └── query_official_rules.py   # 法规检索
-├── work/                # 工作目录
-│   └── repo/                     # 待分析的源码仓库
-└── SKILL.md             # 完整的工作流程说明
+├── SKILL.md
+├── README.md
+├── scripts/
+├── references/
+├── assets/
+├── analysis/
+├── draft/
+├── out/
+└── work/
 ```
 
-## 🔧 核心脚本说明
+## 7. 常见问题
 
-### 代码事实提取（02_repo_inventory.py）
-自动分析仓库，提取：
-- 模块结构和类关系
-- 方法和接口定义
-- 消息主题和数据流
-- 技术特征和处理逻辑
-- 结果保存到 `analysis/context.json`
+Q1：工作目录只有 PDF 语料可以吗？  
+A：可以。`02b_corpus_style_profile.py` 已支持 `CN*.pdf`。文本不可提取时会在输出中标记 `readable=no`。
 
-### 法规检索（query_official_rules.py）
-快速查询官方规范的关键要点：
-- 生成 `analysis/legal_rules_lookup.md`
-- 支持多轮查询（`--query` 参数）
+Q2：02 脚本会不会直接决定技术结论？  
+A：不会。`02_repo_inventory.py` 只做索引导航，技术结论来自后续源码语义提取。
 
-### 草稿校验（04_validate_draft.py）
-检查专利草稿的：
-- 术语一致性（摘要、权利要求、说明书三文一致）
-- 模糊表述检测（"高效"、"强"、"较好"等不可验证表述）
-- 低信息密度检测（仅有结论、缺少条件/动作/结果的短句）
-- 发明名称一致性（标题、摘要、权利要求完整一致）
-- 格式规范（章节结构、引用关系）
-- 生成 `analysis/validation_report.md`
+Q3：大仓库会不会读太多？  
+A：不会强制全量细读。助手按优先级分轮读取，并以证据锚点收敛。
 
-### 附图生成（generate_figures.py）
-- 优先使用 Graphviz 自动布局生成 SVG + PNG
-- 无 Graphviz 时回退到 PIL 手动渲染
-- 确保附图清晰、标号完整、无重叠
-- 生成到 `draft/figures/`
+Q4：语料不足怎么办？  
+A：退回 `references/` 与官方规范继续执行，不中断流程。
 
-### DOCX 渲染（05_render_docx.py）
-- 将 Markdown 草稿转换为标准 DOCX 格式
-- 保持标题完整性（如"及系统"不会丢失）
-- 附图单独占页并居中排版
-- 输出到 `out/patent_draft_<repo_slug>_YYYYMMDD[_HHMMSS].docx`
+## 8. 禁止事项（摘要）
 
-## 🎓 工作流程
+- 禁止把“解析代码生成专利”写入摘要或权利要求。
+- 禁止用固定段落库直接拼接正文。
+- 禁止调用任何“正文自动拼接/自动套模版”脚本生成草稿。
+- 禁止用宣传性词汇替代技术效果论证。
 
-完整的语料驱动专利撰写流程（**严格顺序**）：
+## 9. 参考文件
 
-1. **环境与仓库**
-   - 运行 `scripts/00_check_env.ps1`（Windows）或 `scripts/00_check_env.sh`（Linux/macOS）
-   - 优先复用本地仓库；仅在远程仓库场景调用 `scripts/01_clone_repo.sh`
-
-2. **事实提取**
-   - 运行 `scripts/02_repo_inventory.py --repo work/repo`
-   - 抽取模块、方法、接口、消息主题、数据流，保存到 `analysis/context.json`
-
-3. **法规检索**
-   - 运行 `scripts/query_official_rules.py` 生成当前规则清单
-   - **先完成"官方规范核对清单"，再进入写作阶段**
-
-4. **语料学习**（必须）
-   - 读取 `references/local-patent-style-skill.md`
-   - 扫描目录内专利文本，归纳结构和句式
-
-5. **语料驱动自由写作**（非硬编码）
-   - **不调用正文生成脚本**，由助手基于语料与源码直接生成
-   - **Round 1**: 技术交底（问题-方案-效果-证据映射）
-   - **Round 2**: 权利要求书（独立项完整 + 从属项递进，无重复）
-   - **Round 3**: 说明书（五段结构：技术领域/背景/发明内容/附图说明/具体实施方式）
-     - 重点详写"发明内容+具体实施方式"
-     - 包含输入、处理、输出、异常路径
-   - **Round 4**: 审查修订（清楚性、支持性、单一性、术语一致性 + 低信息密度润色）
-
-6. **校验与渲染**
-   - 运行 `scripts/04_validate_draft.py` 检查质量
-   - 修正校验命中的模糊风险词（"高效"、"强"、"较好"等不可验证表述）
-   - 运行 `scripts/generate_figures.py` 生成附图（Graphviz 优先 → PIL 回退）
-   - 运行 `scripts/05_render_docx.py` 输出成品
-   - 回读 `draft/patent_draft.md` 与输出 DOCX，确认标题和章节渲染完整
-
-## 示例输出
-
-以下是生成的专利初稿示例（摘要与权利要求书）：
-
-![专利初稿示例 - 摘要与权利要求书](assets/patent_draft_sample.png)
-
-*图示：基于波形数据处理系统生成的专利草稿，包含完整的摘要和6项权利要求。*
-
-## 📝 质量要求
-
-### 摘要（Abstract）
-- **结构**: 对象 + 场景 + 关键步骤 + 技术效果
-- **长度**: 不超过 300 字
-- **禁止**: 写工具流程、解析流程
-- **一致性**: 首句主题名称必须与标题、权利要求主题名称完全一致
-
-### 权利要求（Claims）
-- **独立项**: 完整（包含全部必要技术特征）
-- **从属项**: 递进（逐步限定当前方案，不与其他项重复技术特征）
-- **引用关系**: 清晰、无歧义
-- **用语**: 禁止宣传性用语，必须是可验证的技术特征
-- **发明名称**: 必须完整、一致地出现在主题名称中
-
-### 说明书（Specification）
-- **五段结构**: 技术领域、背景技术、发明内容、附图说明、具体实施方式（必须完整）
-- **重点详实**: 技术问题、发明内容、具体实施方式、技术效果 — 必须详写，不得以口号式短句替代
-- **高密度写法**: 
-  - 技术事实 + 处理逻辑 + 效果因果
-  - 减少机械重复"进一步地"
-  - 对"仅有结论、缺少条件/动作/结果任一要素"的短句进行适度润色
-- **可实施程度**: 具体实施方式应包含输入、处理、输出、异常分支
-- **术语一致**: 全文术语与权利要求一致
-
-### 低信息密度检测与润色
-- **识别**: 句子仅有结论、缺少条件/动作/结果任一要素
-- **润色原则**:
-  - 允许扩写处理条件、执行路径、输出结果、异常分支
-  - 禁止引入无源码依据的参数和功能
-  - 关键句优先包含"条件+处理+结果"中的至少两项
-
-### 附图（Figures）
-- **质量**: 分辨率足够、标号完整、无重叠、无空白图
-- **类型**: 系统架构图、流程图、模块关系图
-- **生成工具**: 优先 Graphviz（自动布局）→ 回退 PIL（手动渲染）
-- **DOCX 排版**: 每张附图单独占一页并居中，图题置于图下方
-
-### 渲染一致性
-- **Markdown ↔ DOCX**: 标题完整且一致（如"及系统"不会丢失）
-- **附图验证**: 回读输出 DOCX，确认所有附图清晰可见、页面视觉平衡
-
-## 🚫 禁止事项（强制）
-
-- **禁止**把"解析代码生成专利"写入专利文本
-- **禁止**使用固定段落库拼接正文 — 必须基于语料学习后自由写作
-- **禁止**调用 `scripts/03_generate_draft.py` 或 `scripts/03_generate_draft_llm.py`（已废弃）
-- **禁止**在生成阶段直接套用模板 — 优先考虑官方规范与本地语料的冲突
-- **禁止**出现"仅措辞变化但技术特征相同"的重复权利要求
-- **禁止**用宣传性用语替代技术效果论证
-- **禁止**润色时引入无源码依据的参数和新功能
-- **禁止**跳过任何模块的质量校验和 DOCX 渲染验证
-
-## 📚 参考资料
-
-本工具遵循以下规范：
-- 《中华人民共和国专利法》
-- 《专利审查指南》
-- 《如何撰写专利申请文件》（2017-07-20）
-- CNIPA 专利撰写规范（2017）
-
-## 📄 许可证
-
-本项目仅供学习和研究使用。生成的专利草稿需经专业代理人审核后方可提交。
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request。
-
-## ⚠️ 免责声明
-
-- 本工具生成的专利草稿仅供参考，不构成法律意见
-- 实际提交前必须经过专业专利代理人审核和修改
-- 专利申请的法律责任由申请人自行承担
-
-## 📮 联系方式
-
-如有问题或建议，请在 GitHub 上提交 Issue。
+- `SKILL.md`
+- `references/local-patent-style-skill.md`
+- `references/corpus-style-notes-from-workdir.md`
+- `references/patent-writing-rules.md`
+- `references/cnipa-patent-writing-2017-notes.md`
+- `references/official_rules_catalog.json`
