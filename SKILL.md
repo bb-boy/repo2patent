@@ -5,7 +5,7 @@ description: |
 ---
 
 # 目标
-基于源码事实与本地专利语料，生成可提交前打磨的中国发明专利草案（摘要、权利要求书、说明书、附图说明、DOCX）。
+基于源码事实与工作目录专利语料，生成可提交前打磨的中国发明专利草案（摘要、权利要求书、说明书、附图说明、DOCX）。
 
 # 核心原则（强制）
 0. 官方规范优先级最高：若本地语料风格与官方规范冲突，一律以官方规范为准。
@@ -20,6 +20,8 @@ description: |
 9. 每轮实质改稿后必须重新执行格式校验与DOCX渲染，确保文稿与成品一致。
 10. 对低信息密度句执行适度润色：当句子仅有结论、缺少条件/动作/结果任一要素时，应补足技术语义。
 11. 润色必须受源码事实约束：允许扩写“处理条件、执行路径、输出结果、异常分支”，禁止引入无依据参数和新功能。
+12. 不要求先匹配“技术母型”再写作：母型仅可作为可选表达参考，不能成为前置门槛。
+13. 当语料与项目形态不一致时，必须退回“源码事实主线”写作，不得强行套型。
 
 # 输入
 必填：
@@ -39,6 +41,7 @@ description: |
 # 输出
 - `draft/patent_draft.md`
 - `analysis/context.json`
+- `analysis/corpus_style_profile.md`
 - `analysis/legal_rules_lookup.md`
 - `analysis/llm_rounds/`（每轮中间稿）
 - `analysis/validation_report.md`
@@ -48,6 +51,7 @@ description: |
 - 环境检查：`scripts/00_check_env.ps1` 或 `scripts/00_check_env.sh`
 - 仓库准备（远程仓库才需要）：`scripts/01_clone_repo.sh`
 - 仓库索引提取：`scripts/02_repo_inventory.py`
+- 语料画像提取：`scripts/02b_corpus_style_profile.py`
 - 法规检索：`scripts/query_official_rules.py`
 - 正文写作：由助手基于语料与源码直接生成（不调用正文生成脚本）
 - 质量校验：`scripts/04_validate_draft.py`
@@ -69,10 +73,14 @@ description: |
    - 运行 `scripts/query_official_rules.py`，生成当前规则清单。
    - 先完成“官方规范核对清单”，再进入写作阶段。
 5. 语料学习（必须）：
-   - 读取 `references/local-patent-style-skill.md`。
-   - 扫描目录内 `CN*.txt` 专利文本，归纳结构和句式，仅在不与官方规范冲突时采用。
+   - 运行 `scripts/02b_corpus_style_profile.py --corpus-dir <workdir> --out analysis/corpus_style_profile.md`。
+   - 读取 `analysis/corpus_style_profile.md`、`references/local-patent-style-skill.md` 与 `references/corpus-style-notes-from-workdir.md`。
+   - 扫描工作目录 `CN*.txt / CN*.pdf` 专利文本，提取“章节结构、权利要求句式、术语粒度、效果表达边界”四类风格信号。
+   - 输出语料画像（结构模式 + 高频句式 + 禁用表达），仅在不与官方规范冲突时采用。
+   - 若工作目录无可用 `CN*.txt / CN*.pdf`，退回 `references/` 内语料与官方规范继续执行，不中断流程。
 6. 语料驱动自由写作（非硬编码）：
    - 由助手直接写作，不调用正文生成脚本。
+   - 写作以“源码事实链路”组织，不要求预先匹配任何技术母型。
    - Round1：技术交底（问题-方案-效果-证据映射）。
    - Round2：权利要求（独立项完整 + 从属项递进）。
    - Round3：说明书（技术领域/背景/发明内容/附图/实施方式），重点展开“发明内容+具体实施方式”并写清输入、处理、输出与异常路径。
@@ -88,8 +96,7 @@ description: |
 # 禁止事项
 - 禁止把“解析代码生成专利”写进摘要或权利要求。
 - 禁止在生成阶段使用固定段落库逐句拼接成文。
-- 禁止调用 `scripts/03_generate_draft.py` 生成正文草稿。
-- 禁止调用 `scripts/03_generate_draft_llm.py` 生成正文草稿。
+- 禁止调用任何“正文自动拼接/自动套模版”脚本生成草稿。
 - 禁止出现仅措辞变化但技术特征相同的重复权利要求。
 - 禁止用宣传性用语替代技术效果论证。
 
@@ -104,11 +111,6 @@ description: |
 - 渲染一致性：Markdown与DOCX标题一致且完整（例如“及系统”不得丢失）。
 - 附图质量：优先使用自动布局（Graphviz）；图中不得出现明显重叠、交叉线过多、标号缺失或文本超框。
 - 附图版式：DOCX中每张附图应单独占一页并居中排版，图题置于图下方，保证页面视觉平衡。
-- 附图标题规则：图内不得绘制“图1/图2/图3+标题”文字，图题仅允许出现在图下方图注位置。
-- 附图尺寸规则：绘图与排版前先计算页面可用区域，单图尺寸不得超出一页可用空间，并预留图注空间。
-- 分层图规则：分层图不绘制外层总框；仅保留层级标识与模块框。若存在分层参考宽度，层内模块区宽度应保持一致。
-- 流程图方向规则：流程图主流程必须由上往下（Top-to-Bottom）绘制。
-- 流程图自适应规则：当流程较长或文字较长时，自动缩小节点字号、内边距和节点间距，保证单页可读且不拥挤。
 
 # 官方规范核对清单（写作前/写作后均需执行）
 1. 保护范围以权利要求书为准，说明书用于支持与解释。
@@ -120,6 +122,7 @@ description: |
 
 # 参考资料
 - `references/local-patent-style-skill.md`
+- `references/corpus-style-notes-from-workdir.md`
 - `references/patent-writing-rules.md`
 - `references/cnipa-patent-writing-2017-notes.md`
 - `references/patent-draft-template.md`（仅章节结构参考，不用于正文生成）
