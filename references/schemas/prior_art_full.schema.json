@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "prior_art_full",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "source",
+      "patent_number",
+      "url",
+      "title",
+      "claims_status"
+    ],
+    "properties": {
+      "source": {
+        "type": "string"
+      },
+      "patent_number": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "abstract": {
+        "type": "string"
+      },
+      "claims_status": {
+        "type": "string"
+      },
+      "claims_text": {
+        "type": "string"
+      },
+      "claims": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "fetched_at": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": true
+  }
+}

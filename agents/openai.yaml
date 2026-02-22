@@ -1,5 +1,0 @@
-interface:
-  display_name: "repo2patent"
-  short_description: "Input GitHub repository URL and generate CN invention patent draft DOCX."
-policy:
-  allow_implicit_invocation: true

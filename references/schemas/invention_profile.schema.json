@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "invention_profile",
+  "type": "object",
+  "required": [
+    "title",
+    "technical_field",
+    "background_problems",
+    "core_problem",
+    "solution_overview",
+    "key_features",
+    "keywords"
+  ],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "technical_field": {
+      "type": "object",
+      "required": [
+        "domain",
+        "sub_domain"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "sub_domain": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "background_problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "core_problem": {
+      "type": "string"
+    },
+    "solution_overview": {
+      "type": "string"
+    },
+    "key_features": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "benefits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "figures": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "keywords": {
+      "type": "object",
+      "required": [
+        "cn",
+        "en"
+      ],
+      "properties": {
+        "cn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "en": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

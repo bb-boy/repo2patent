@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "repo_index",
+  "type": "object",
+  "required": [
+    "repo",
+    "files"
+  ],
+  "properties": {
+    "repo": {
+      "type": "object",
+      "required": [
+        "path",
+        "commit_sha"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "commit_sha": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "docs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "symbol_index": {
+      "type": "object"
+    },
+    "top_recommended": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignore_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

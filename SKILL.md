@@ -1,129 +1,244 @@
 ---
 name: repo2patent
-description: |
-  Input a repository URL or local path, analyze the codebase, learn local patent corpus style, and draft a CN invention patent (claims + specification + abstract) as DOCX. Use when the user asks to generate, improve, or review patent text from a software repository.
+version: 5.0.0
+description: 面向中国发明专利：从 GitHub 项目/技术方案生成可交付的专利技术交底书（Word .docx），并【必须】完成专利检索 + 权利要求抽取（claims）+ 特征对比矩阵 + 候选新颖点（差异特征组合）提炼。
 ---
 
-# 目标
-基于源码事实与工作目录专利语料，生成可提交前打磨的中国发明专利草案（摘要、权利要求书、说明书、附图说明、DOCX）。
+# 专利助手（Patent Assistant）
 
-# 核心原则（强制）
-0. 官方规范优先级最高：若本地语料风格与官方规范冲突，一律以官方规范为准。
-1. 写作对象是“仓库对应的技术方案”，不是工具流程。
-2. 先学语料再写，不允许直接套固定文案。
-3. 写作阶段不依赖硬编码模板脚本拼句。
-4. 脚本可用于：环境检查、仓库准备、仓库索引、法规检索、格式校验、附图生成、DOCX渲染；技术语义提取由助手完成。
-5. 全文术语统一，摘要/权利要求/说明书三文一致。
-6. `references/patent-draft-template.md` 仅可用于章节骨架参考，不可用于正文内容拼接。
-7. 发明名称必须完整一致地出现在 `#` 标题、摘要首句主题和权利要求书主题名称中，不得截断或简写。
-8. 说明书采用“技术事实+处理逻辑+效果因果”高密度写法，避免连续单句“进一步地”造成内容空泛。
-9. 每轮实质改稿后必须重新执行格式校验与DOCX渲染，确保文稿与成品一致。
-10. 对低信息密度句执行适度润色：当句子仅有结论、缺少条件/动作/结果任一要素时，应补足技术语义。
-11. 润色必须受源码事实约束：允许扩写“处理条件、执行路径、输出结果、异常分支”，禁止引入无依据参数和新功能。
-12. 不要求先匹配“技术母型”再写作：母型仅可作为可选表达参考，不能成为前置门槛。
-13. 当语料与项目形态不一致时，必须退回“源码事实主线”写作，不得强行套型。
+本 Skill 解决两件事（两者都是**必须**）：
 
-# 输入
-必填：
-- `repo_url_or_path`: GitHub URL 或本地仓库路径
+1) **交底书（发明专利）**：从 GitHub 项目抽取证据 → 形成结构化交底书 → 输出 Word（`.docx`）  
+2) **检索与新颖点**：基于关键技术特征生成检索式 → 专利检索 → 抽取对比文件的**权利要求（claims）** → 形成“特征×对比文件”矩阵 → 提炼候选新颖点/风险点
 
-可选：
-- `branch`
-- `commit`
-- `legal_query`（可多次）
-- `target_claims`（默认 18）
-- `review_cycles`（默认 2，仅作用于 Round4 审查修订迭代次数；Round1-3固定执行）
-- `invention_name`
-- `applicant`
-- `inventors`
-- `constraints`
+---
 
-# 输出
-- `draft/patent_draft.md`
-- `analysis/context.json`
-- `analysis/corpus_style_profile.md`
-- `analysis/legal_rules_lookup.md`
-- `analysis/llm_rounds/`（每轮中间稿）
-- `analysis/validation_report.md`
-- `out/patent_draft_<repo_slug>_YYYYMMDD[_HHMMSS].docx`
+## 重要声明（必须展示给用户）
+- 本 Skill 产出**不构成法律意见**；检索与新颖点为“初步摸底”，不等同正式查新报告或授权结论。
+- 新颖性判断通常需要阅读最接近对比文件全文（尤其独立权利要求），本 Skill 通过抓取 claims 提升可靠性，但仍可能因术语差异/解析失败造成误判。
+- 任何性能指标/有益效果若无证据或实验数据，必须标注“待补充”，不得编造。
 
-# 按需调用脚本（需要什么调用什么）
-- 环境检查：`scripts/00_check_env.ps1` 或 `scripts/00_check_env.sh`
-- 仓库准备（远程仓库才需要）：`scripts/01_clone_repo.sh`
-- 仓库索引提取：`scripts/02_repo_inventory.py`
-- 语料画像提取：`scripts/02b_corpus_style_profile.py`
-- 法规检索：`scripts/query_official_rules.py`
-- 正文写作：由助手基于语料与源码直接生成（不调用正文生成脚本）
-- 质量校验：`scripts/04_validate_draft.py`
-- 附图生成：`scripts/generate_figures.py`（Graphviz优先生成SVG+PNG；无dot时回退PIL）
-- DOCX渲染：`scripts/05_render_docx.py`
+---
 
-# 语料驱动工作流（严格顺序）
-1. 环境与仓库：
-   - 运行 `scripts/00_check_env.*`。
-   - 优先复用本地仓库；仅在远程仓库场景调用 `scripts/01_clone_repo.sh`。
-2. 索引种子提取（脚本）：
-   - 运行 `scripts/02_repo_inventory.py`，生成 `analysis/context.json`（仅含目录列表与文档类文件清单）。
-   - 本步骤不输出最终技术结论，不替代语义分析。
-3. 源码语义提取（助手执行）：
-   - 由助手基于第2步索引种子分轮读取源码，提取模块职责、接口、消息主题、数据流、异常分支。
-   - 每条结论必须绑定证据锚点（`file:line`）；无证据结论不得进入最终上下文。
-   - 对大仓库采用分轮与优先级控制，避免无差别全量细读。
-4. 法规检索：
-   - 运行 `scripts/query_official_rules.py`，生成当前规则清单。
-   - 先完成“官方规范核对清单”，再进入写作阶段。
-5. 语料学习（必须）：
-   - 运行 `scripts/02b_corpus_style_profile.py --corpus-dir <workdir> --out analysis/corpus_style_profile.md`。
-   - 读取 `analysis/corpus_style_profile.md`、`references/local-patent-style-skill.md` 与 `references/corpus-style-notes-from-workdir.md`。
-   - 扫描工作目录 `CN*.txt / CN*.pdf` 专利文本，提取“章节结构、权利要求句式、术语粒度、效果表达边界”四类风格信号。
-   - 输出语料画像（结构模式 + 高频句式 + 禁用表达），仅在不与官方规范冲突时采用。
-   - 若工作目录无可用 `CN*.txt / CN*.pdf`，退回 `references/` 内语料与官方规范继续执行，不中断流程。
-6. 语料驱动自由写作（非硬编码）：
-   - 由助手直接写作，不调用正文生成脚本。
-   - 写作以“源码事实链路”组织，不要求预先匹配任何技术母型。
-   - Round1：技术交底（问题-方案-效果-证据映射）。
-   - Round2：权利要求（独立项完整 + 从属项递进）。
-   - Round3：说明书（技术领域/背景/发明内容/附图/实施方式），重点展开“发明内容+具体实施方式”并写清输入、处理、输出与异常路径。
-   - Round4：审查视角修订（清楚性、支持性、单一性、术语一致性）+ 低信息密度句润色（补足条件、动作、结果）。
-   - Round1-3 固定执行；`review_cycles` 仅控制 Round4 的重复修订次数。
-7. 校验与渲染：
-   - 运行 `scripts/04_validate_draft.py`。
-   - 修正校验命中的模糊风险词（如“强/弱/较好/高效”等不可验证表述）。
-   - 运行 `scripts/generate_figures.py` 与 `scripts/05_render_docx.py`。
-   - 附图必须通过质量门槛：分辨率、清晰度、可读字号、标号完整、非空白图。
-   - 回读 `draft/patent_draft.md` 与 `out/*.docx` 结果，确认标题和章节渲染完整。
+## 法规/权威依据（请在 references 查阅链接）
+- 专利法第22条：新颖性/创造性/实用性及“新颖性”的法定定义（现有技术/抵触申请）。见 `references/00_authoritative_sources.md`  
+- 专利法第26条：说明书清楚完整、权利要求以说明书为依据等。  
+- 实施细则第20条：说明书章节结构与写作规范（技术领域/背景技术/发明内容/附图说明/具体实施方式）。
 
-# 禁止事项
-- 禁止把“解析代码生成专利”写进摘要或权利要求。
-- 禁止在生成阶段使用固定段落库逐句拼接成文。
-- 禁止调用任何“正文自动拼接/自动套模版”脚本生成草稿。
-- 禁止出现仅措辞变化但技术特征相同的重复权利要求。
-- 禁止用宣传性用语替代技术效果论证。
+---
 
-# 质量门槛
-- 摘要：对象 + 场景 + 关键步骤 + 技术效果，<=300字。
-- 权利要求：独立项完整、从属项递进、引用关系清晰。
-- 说明书：五段结构完整；“发明内容”和“具体实施方式”不得写成大量单句空段，关键段落需包含技术条件、处理逻辑与结果关系。
-- 文风密度：减少机械重复“进一步地”，允许自然扩写，但不得超出源码事实或引入无依据参数。
-- 句子密度：对“只有结论、缺少技术动作”的短句必须润色；润色后每个关键句优先具备“条件+处理+结果”三要素中的至少两项。
-- 重点详实：技术问题、发明内容、具体实施方式、技术效果四部分必须详写，不得以口号式短句替代技术叙述。
-- 一致性：术语和技术特征在三文中可逐项对应。
-- 渲染一致性：Markdown与DOCX标题一致且完整（例如“及系统”不得丢失）。
-- 附图质量：优先使用自动布局（Graphviz）；图中不得出现明显重叠、交叉线过多、标号缺失或文本超框。
-- 附图版式：DOCX中每张附图应单独占一页并居中排版，图题置于图下方，保证页面视觉平衡。
+## 输入（至少提供一项）
+- GitHub repo URL（优先）或本地 repo 路径
+- 可选：ref（branch/tag/commit SHA）
+- 可选：范围提示（scope）：只关注某个模块/目录（例如 `src/scheduler/`）
 
-# 官方规范核对清单（写作前/写作后均需执行）
-1. 保护范围以权利要求书为准，说明书用于支持与解释。
-2. 权利要求应以说明书为依据，清楚、简要限定保护范围。
-3. 独立权利要求完整记载必要技术特征，从属权利要求仅作进一步限定。
-4. 说明书必须包含：技术领域、背景技术、发明内容、附图说明、具体实施方式。
-5. 摘要仅作技术信息用途，不得用于解释保护范围，且不超过300字。
-6. 术语统一、引用关系清楚，不得出现导致范围不清楚的表述。
+---
 
-# 参考资料
-- `references/local-patent-style-skill.md`
-- `references/corpus-style-notes-from-workdir.md`
-- `references/patent-writing-rules.md`
-- `references/cnipa-patent-writing-2017-notes.md`
-- `references/patent-draft-template.md`（仅章节结构参考，不用于正文生成）
-- `references/official_rules_catalog.json`
+## 输出（必须）
+- `disclosure.docx`：交付给代理人/内部评审的交底书（主交付）
+- `prior_art.json`：检索结果（结构化，召回）
+- `prior_art_full.json`：对比文件“精读包”（至少包含 claims）
+- `claims_manual.json`：人工回填 claims（当自动抓取失败时必须产出）
+- `novelty_matrix.json`：特征×对比文件矩阵（claim 优先）+ 候选差异特征/差异组合统计
+- `missing_info.md`：待补信息清单
+- `.patent_assistant/evidence.json`：证据包（路径+行号+片段，可审计）
+
+---
+
+# 必做工作流（包含 B/C）
+
+> 说明  
+> - A：检索召回（prior_art.json）  
+> - **B：抓取权利要求（prior_art_full.json）** ← 本版本新增（必须）  
+> - **C：基于 claims 的特征级对比与新颖点提炼** ← 本版本加强（必须）
+
+---
+
+## Step 1：下载并固化版本（脚本）
+```bash
+python scripts/repo_fetcher.py --repo <repo_url_or_path> --ref <optional> --workdir .patent_assistant --force
+```
+产物：`.patent_assistant/repo/`、`.patent_assistant/repo_meta.json`
+
+## Step 2：生成导航索引（脚本）
+```bash
+python scripts/repo_indexer.py --repo .patent_assistant/repo --out .patent_assistant/repo_index.json
+```
+
+## Step 3：LLM 生成阅读计划 reading_plan.json（guided-only）
+LLM 只读取 `.patent_assistant/repo_index.json`，输出 `reading_plan.json`（必须符合 schema）：
+- schema：`references/schemas/reading_plan.schema.json`
+
+Planner 硬性要求：
+- 必须包含 README（或同等 overview 文档）
+- 若 `repo_index.json` 给出了 entrypoints，必须包含至少 1 个 entrypoint
+- 必须包含至少 1 个“机制强信号”模块（scheduler/pipeline/index/cache/dedup/optimizer/retry/score 等）
+- 不得超过预算：`max_files`、`max_total_chars`
+
+## Step 4：按 reading_plan 抽取证据包（脚本）
+```bash
+python scripts/evidence_builder.py   --repo .patent_assistant/repo   --index .patent_assistant/repo_index.json   --plan reading_plan.json   --out .patent_assistant/evidence.json
+```
+
+## Step 5：LLM 产出 invention_profile.json（关键技术特征/关键词/变体）
+LLM 只读取：
+- `.patent_assistant/repo_meta.json`
+- `.patent_assistant/evidence.json`
+并输出结构化 `invention_profile.json`（必须符合 schema）：
+- schema：`references/schemas/invention_profile.schema.json`
+
+要求至少包含：
+- 发明名称（建议：一种…的方法/系统/装置）
+- 背景缺陷要点（>=1）
+- **关键技术特征 F1..Fn（3–10 条，每条尽量“可检查、可对比”，并附 evidence_id）**
+- 关键词（cn/en）
+- 变体要点（>=3）
+
+若关键信息缺失，必须输出 `missing_info.md`（参考 `references/04_inventor_question_bank.md`）。
+
+---
+
+# A. 检索召回（必须）
+
+## Step 6：生成检索式（默认由 Codex agent 接管 + 脚本校验）
+先由 Codex agent 产出 `queries.agent.json`（list 或 `{queries:[...]}`），再由脚本做质量门禁与回退合并：
+```bash
+python scripts/query_builder.py \
+  --profile invention_profile.json \
+  --agent-queries queries.agent.json \
+  --query-source auto \
+  --min-agent-queries 4 \
+  --strict \
+  --min-query-tokens 2 \
+  --out queries.json
+```
+说明：
+- `--query-source auto`：agent 优先；若 agent 查询缺失/不足，自动回退并合并 profile 查询。
+- 若 `queries.agent.json` 不存在，流程可继续（回退 profile），但会给出 warning。
+
+## Step 7：执行专利检索（脚本，必须）
+至少使用 Google Patents（可追加 lens/espacenet/cnipa 等）。
+```bash
+python scripts/patent_search.py \
+  --queries queries.json \
+  -s google -c CN -n 30 -a \
+  --timeout 45 --retries 4 --backoff 1.8 --jitter 0.25 \
+  --query-sleep 2 --query-jitter 0.3 \
+  --min-unique-patents 10 --fail-on-low-recall \
+  --fail-on-empty \
+  --out-json prior_art.json \
+  --failures-json prior_art.failures.json
+```
+
+> Step 7 召回门禁  
+> - 若 unique patents < 10，必须由 Codex agent 重写 `queries.agent.json` 并重新执行 Step 6-7。  
+> - 不得在召回不足时直接进入 Step 8。
+
+---
+
+# B. 抓取权利要求 claims（必须）
+
+## Step 8A：自动抓取 TopK 对比文件的权利要求（脚本，必须）
+```bash
+python scripts/patent_fetch_claims.py \
+  --in prior_art.json \
+  --topk 10 \
+  --claim-sources auto \
+  --timeout 40 --retries 4 --backoff 1.8 --jitter 0.25 \
+  --sleep 2 --resume \
+  --out prior_art_full.json \
+  --cache-dir .patent_assistant/patent_cache
+```
+
+> 说明  
+> - 自动路由支持 `google/espacenet/cnipa/lens`（`--claim-sources auto`）。  
+> - 每条文献会记录 `claims_fetch_attempts`（来源、URL、失败原因）。  
+> - 如果 `claims_status` 大量失败（403/412/503 等），必须进入 Step 8B，由 Codex agent 接管完成 claims 回填。
+
+## Step 8B：Codex agent 接管完成 claims（自动失败时必须执行）
+
+### 8B-1 生成人工任务模板
+```bash
+python scripts/manual_claims_template.py \
+  --in prior_art.json \
+  --topk 10 \
+  --out claims_manual.json \
+  --out-md claims_manual_checklist.md
+```
+
+### 8B-2 由 Codex agent 执行人工提取（用户无需手工录入）
+- Codex agent 按 `claims_manual_checklist.md` 逐条打开专利链接，提取至少独立权利要求（建议 1-3 条）。  
+- Codex agent 将提取结果写入 `claims_manual.json`（字段：`patent_number` + `claims_text` 或 `claims[]`）。  
+- 若站点被封（403/412/503）导致 agent 无法访问，agent 必须向用户明确说明并请求可访问链接/PDF；拿到后继续由 agent 完成录入。
+
+### 8B-3 合并人工 claims 并生成最终 prior_art_full
+```bash
+python scripts/patent_fetch_claims.py \
+  --in prior_art.json \
+  --topk 10 \
+  --resume \
+  --manual-claims claims_manual.json \
+  --require-min-ok-ratio 0.3 \
+  --out prior_art_full.json \
+  --cache-dir .patent_assistant/patent_cache
+```
+
+> Step 8 完成判定  
+> - `prior_art_full.json` 中 `claims_status in {ok, ok_fallback, manual_ok}` 的比例应 >= 0.3；  
+> - 未达到阈值时，Codex agent 必须继续补录 claims（或向用户请求可访问资料后补录），不得直接进入 Step 9。
+
+---
+
+# C. 基于 claims 的对比矩阵与新颖点提炼（必须）
+
+## Step 9：生成新颖性对比矩阵（脚本，必须）
+```bash
+python scripts/novelty_matrix.py \
+  --profile invention_profile.json \
+  --prior-art-full prior_art_full.json \
+  --min-claims-ok-ratio 0.3 \
+  --fail-on-low-claims \
+  --out novelty_matrix.json
+```
+
+矩阵输出包含：
+- 每篇对比文件、每条特征的 label：YES/PARTIAL/NO（以 claims 命中为主，abstract 为辅）
+- evidence_snippets：从 claims 中截取的命中片段（便于人工复核）
+- novelty_candidates：单特征差异候选（NO 占比高）
+- pair_candidates：差异组合候选（“分别出现但很少同时出现”的特征对）
+
+## Step 10：LLM 输出新颖点结构化结论 + 写交底书（必须）
+
+LLM 输入：
+- `invention_profile.json`
+- `prior_art.json`
+- `prior_art_full.json`（含 claims）
+- `novelty_matrix.json`
+- `templates/disclosure_template_cn_invention.md`
+- `references/06_novelty_playbook.md`
+- `references/07_novelty_findings_output.md`
+
+LLM **必须同时输出三份文件**：
+1) `novelty_findings.json`（结构化新颖点结论，必须符合 schema）  
+   - schema：`references/schemas/novelty_findings.schema.json`
+2) `disclosure.md`（交底书草稿：在“专利检索与新颖点初判”章节引用 NP# 并与 novelty_findings 对齐）
+3) `missing_info.md`（若仍缺）
+
+硬性要求：
+- 必须选出 1–3 篇“最接近对比文件”（优先 claims_status=ok）
+- 每个候选新颖点必须写成“差异特征组合”（例如：F2+F5+F7），并给出：
+  - 对比文件专利号/链接
+  - 矩阵标签（YES/PARTIAL/NO）与 claims 片段证据（snippets）
+  - 风险提示（术语差异/claims 抓取失败/需读全文确认）
+- 必须输出 risks 与 actions（补强建议与优先级）
+
+## Step 11：渲染 Word（脚本，必须）
+```bash
+python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
+```
+
+---
+
+## 证据与可追溯（必须）
+- 关键机制/关键步骤/关键参数：必须引用 `evidence_id`
+- 新颖点结论必须可追溯到：F条目 + 对比文件（专利号/链接）+ claims 命中片段 + 矩阵判断

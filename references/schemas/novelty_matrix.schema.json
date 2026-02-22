@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "novelty_matrix",
+  "type": "object",
+  "required": [
+    "features",
+    "documents",
+    "matrix",
+    "novelty_candidates",
+    "pair_candidates"
+  ],
+  "properties": {
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "array"
+      }
+    },
+    "novelty_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "pair_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "novelty_findings",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "scope",
+    "closest_prior_art",
+    "novelty_points",
+    "risks",
+    "actions",
+    "evidence_trace"
+  ],
+  "properties": {
+    "generated_at": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "repo_url",
+        "commit_sha"
+      ],
+      "properties": {
+        "repo_url": {
+          "type": "string"
+        },
+        "commit_sha": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "search_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "topk_claims": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": true
+    },
+    "closest_prior_art": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "patent_number",
+          "title",
+          "url",
+          "why_close"
+        ],
+        "properties": {
+          "patent_number": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "why_close": {
+            "type": "string"
+          },
+          "claims_status": {
+            "type": "string"
+          },
+          "overall_match": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "novelty_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "feature_ids",
+          "statement",
+          "differential",
+          "supporting_prior_art",
+          "supporting_snippets",
+          "confidence",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "feature_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "statement": {
+            "type": "string"
+          },
+          "differential": {
+            "type": "string"
+          },
+          "supporting_prior_art": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "patent_number",
+                "url",
+                "matrix_evidence"
+              ],
+              "properties": {
+                "patent_number": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "matrix_evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "feature_id",
+                      "label",
+                      "score_best"
+                    ],
+                    "properties": {
+                      "feature_id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string",
+                        "enum": [
+                          "YES",
+                          "PARTIAL",
+                          "NO"
+                        ]
+                      },
+                      "score_best": {
+                        "type": "number"
+                      },
+                      "snippets": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "supporting_snippets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type",
+          "description",
+          "impact"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "terminology_mismatch",
+              "claims_fetch_failed",
+              "insufficient_search",
+              "feature_too_generic",
+              "needs_full_text_review",
+              "missing_benefit_data",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "related_patents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "related_feature_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "action",
+          "priority"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "owner": {
+            "type": "string"
+          },
+          "expected_output": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "evidence_trace": {
+      "type": "object",
+      "required": [
+        "inputs",
+        "outputs"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "required": [
+            "invention_profile",
+            "prior_art",
+            "prior_art_full",
+            "novelty_matrix"
+          ],
+          "properties": {
+            "invention_profile": {
+              "type": "string"
+            },
+            "prior_art": {
+              "type": "string"
+            },
+            "prior_art_full": {
+              "type": "string"
+            },
+            "novelty_matrix": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "outputs": {
+          "type": "object",
+          "required": [
+            "novelty_findings",
+            "disclosure_md"
+          ],
+          "properties": {
+            "novelty_findings": {
+              "type": "string"
+            },
+            "disclosure_md": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
