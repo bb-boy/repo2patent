@@ -1,5 +1,4 @@
 .patent_assistant/
-.patent_assistant_smoke/
 __pycache__/
 *.pyc
 *.docx

@@ -36,6 +36,8 @@ description: 面向中国发明专利：从 GitHub 项目/技术方案生成可�
 
 ## 输出（必须）
 - `disclosure.docx`：交付给代理人/内部评审的交底书（主交付）
+- `disclosure.json`：结构化交底内容（必须，schema 化）
+- `run_report.md`：流程执行报告（日志分流文件，不进入交底正文）
 - `prior_art.json`：检索结果（结构化，召回）
 - `prior_art_full.json`：对比文件“精读包”（至少包含 claims）
 - `claims_manual.json`：人工回填 claims（当自动抓取失败时必须产出）
@@ -207,7 +209,7 @@ python scripts/novelty_matrix.py \
 - novelty_candidates：单特征差异候选（NO 占比高）
 - pair_candidates：差异组合候选（“分别出现但很少同时出现”的特征对）
 
-## Step 10：LLM 输出新颖点结构化结论 + 写交底书（必须）
+## Step 10：LLM 输出结构化结论 + 结构化交底内容（必须）
 
 LLM 输入：
 - `invention_profile.json`
@@ -215,13 +217,16 @@ LLM 输入：
 - `prior_art_full.json`（含 claims）
 - `novelty_matrix.json`
 - `templates/disclosure_template_cn_invention.md`
+- `templates/disclosure_structured_template.json`
 - `references/06_novelty_playbook.md`
 - `references/07_novelty_findings_output.md`
+- `references/08_disclosure_output.md`
 
 LLM **必须同时输出三份文件**：
 1) `novelty_findings.json`（结构化新颖点结论，必须符合 schema）  
    - schema：`references/schemas/novelty_findings.schema.json`
-2) `disclosure.md`（交底书草稿：在“专利检索与新颖点初判”章节引用 NP# 并与 novelty_findings 对齐）
+2) `disclosure.json`（结构化交底内容，必须符合 schema）
+   - schema：`references/schemas/disclosure.schema.json`
 3) `missing_info.md`（若仍缺）
 
 硬性要求：
@@ -232,7 +237,24 @@ LLM **必须同时输出三份文件**：
   - 风险提示（术语差异/claims 抓取失败/需读全文确认）
 - 必须输出 risks 与 actions（补强建议与优先级）
 
-## Step 11：渲染 Word（脚本，必须）
+## Step 11：构建交底 Markdown + 分流运行报告（脚本，必须）
+```bash
+python scripts/disclosure_builder.py --in disclosure.json --out-md disclosure.md --strict
+python scripts/run_report_builder.py \
+  --repo-meta .patent_assistant/repo_meta.json \
+  --queries queries.json \
+  --prior-art prior_art.json \
+  --prior-art-full prior_art_full.json \
+  --novelty-matrix novelty_matrix.json \
+  --failures prior_art.failures.json \
+  --out run_report.md
+```
+
+要求：
+- `run_report.md` 只能包含流程日志/统计信息，不得作为交底正文输入。
+- `disclosure_builder.py` 严格拦截 workflow/log 词进入 `disclosure.md`。
+
+## Step 12：渲染 Word（脚本，必须）
 ```bash
 python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
 ```
@@ -242,3 +264,14 @@ python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
 ## 证据与可追溯（必须）
 - 关键机制/关键步骤/关键参数：必须引用 `evidence_id`
 - 新颖点结论必须可追溯到：F条目 + 对比文件（专利号/链接）+ claims 命中片段 + 矩阵判断
+
+## Strict Mode Addendum (Mandatory)
+- Do not fabricate or synthesize `prior_art.json` records.
+- Step 7 must come from real search execution (`scripts/patent_search.py`) and pass strict source integrity checks.
+- `prior_art.json` source names containing `manual/fallback/synthetic/mock/test` are invalid.
+- If claims auto-fetch fails, agent may perform manual claims completion, but each manual item must include:
+  - `claims_source_url` (direct accessible evidence link)
+  - `claims_source_type` in `{google_patents, office_portal, pdf_copy, freepatentsonline}`
+- Without the fields above, manual claims merge must fail in strict mode.
+- If network/search endpoint is blocked, explicitly report blocker and request user-provided accessible links/PDF; do not create fake prior-art entries.
+- Auto claim-source routing includes `fpo` (FreePatentsOnline) as a strict fallback, especially for US publications/grants when Google/Espacenet pages are blocked.

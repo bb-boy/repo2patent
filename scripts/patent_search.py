@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-patent_search.py - initial patent search (recall stage).
+patent_search.py - strict patent recall search for repo2patent Step 7.
 
-Mandatory in the Skill workflow. At minimum, use Google Patents.
+Primary path:
+- Google Patents xhr/query API
 
-It mainly returns title+abstract (+meta). Full claims are fetched in the next step:
-- scripts/patent_fetch_claims.py (mandatory)
-
-Notes:
-- Some sources require JS/login; for those we output search links.
+Fallback paths:
+- Google Patents HTML search result parsing
+- Espacenet/Lens/CNIPA search page publication-number parsing
 """
 from __future__ import annotations
 
@@ -27,12 +26,20 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 RETRYABLE_HTTP_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 PATENT_URL_RE = re.compile(r"/patent/([A-Za-z0-9]+)", re.IGNORECASE)
+TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,30}|[\u4e00-\u9fff]{2,8}")
+PUB_NO_RE = re.compile(r"\b(?:CN|US|EP|WO|JP|KR|DE|FR|GB)\d{6,14}[A-Z0-9]{0,4}\b", re.IGNORECASE)
+
+ALLOWED_RESULT_SOURCES = {"Google Patents", "Lens.org", "Espacenet", "CNIPA"}
+FORBIDDEN_SOURCE_MARKERS = ("manual", "fallback", "synthetic", "mock", "test")
+MOJIBAKE_MARKERS = set("锛銆鍙鏃鏈鍥鍚鎴闂涓崭笓鍒妫索")
+
 
 def _sleep_with_jitter(base_seconds: float, jitter: float) -> None:
     if base_seconds <= 0:
         return
     factor = 1.0 + random.uniform(-abs(jitter), abs(jitter))
     time.sleep(max(0.0, base_seconds * factor))
+
 
 def _http_get(
     url: str,
@@ -45,7 +52,6 @@ def _http_get(
     req = urllib.request.Request(url, headers=headers or {})
     max_attempts = max(1, retries + 1)
     last_err: Optional[Exception] = None
-
     for attempt in range(1, max_attempts + 1):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -68,8 +74,8 @@ def _http_get(
                 _sleep_with_jitter(backoff ** (attempt - 1), jitter)
                 continue
             raise
-
     raise RuntimeError(f"HTTP GET failed after retries: {last_err}")
+
 
 def is_garbled_text(text: str) -> bool:
     s = str(text).strip()
@@ -80,11 +86,17 @@ def is_garbled_text(text: str) -> bool:
     q_count = s.count("?")
     if q_count >= 2 and q_count / max(1, len(s)) >= 0.2:
         return True
+    if len(s) >= 4:
+        marker_hits = sum(1 for ch in s if ch in MOJIBAKE_MARKERS)
+        if marker_hits / len(s) >= 0.25:
+            return True
     return False
 
+
 def query_token_count(query: str) -> int:
-    toks = re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,30}|[\u4e00-\u9fff]{2,8}", query)
-    return len([t for t in toks if not is_garbled_text(t)])
+    tokens = TOKEN_RE.findall(query)
+    return len([t for t in tokens if not is_garbled_text(t)])
+
 
 def sanitize_queries(raw_queries: List[str], min_tokens: int) -> Tuple[List[str], List[Dict[str, Any]]]:
     valid: List[str] = []
@@ -108,6 +120,7 @@ def sanitize_queries(raw_queries: List[str], min_tokens: int) -> Tuple[List[str]
         valid.append(query)
     return valid, dropped
 
+
 def dedup_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     seen = set()
@@ -127,6 +140,32 @@ def dedup_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out.append(it)
     return out
 
+
+def validate_result_items(items: List[Dict[str, Any]]) -> List[str]:
+    errors: List[str] = []
+    for i, it in enumerate(items, start=1):
+        if not isinstance(it, dict):
+            errors.append(f"item[{i}] is not object")
+            continue
+        source = str(it.get("source", "")).strip()
+        source_l = source.lower()
+        if any(mark in source_l for mark in FORBIDDEN_SOURCE_MARKERS):
+            errors.append(f"item[{i}] has forbidden source marker: {source}")
+        if source and source not in ALLOWED_RESULT_SOURCES:
+            errors.append(f"item[{i}] has unknown source: {source}")
+
+        is_note_only = "note" in it
+        if not is_note_only:
+            title = str(it.get("title", "")).strip()
+            patent_number = str(it.get("patent_number", "")).strip()
+            url = str(it.get("url", "")).strip()
+            if not title:
+                errors.append(f"item[{i}] missing title")
+            if not (patent_number or url):
+                errors.append(f"item[{i}] missing patent_number/url")
+    return errors
+
+
 def count_unique_patents(items: List[Dict[str, Any]]) -> int:
     uniq = set()
     for it in items:
@@ -144,6 +183,139 @@ def count_unique_patents(items: List[Dict[str, Any]]) -> int:
             uniq.add(m.group(1).upper())
     return len(uniq)
 
+
+def _extract_publication_numbers(html_text: str, country: str, max_items: int) -> List[str]:
+    country_u = str(country or "").strip().upper()
+    out: List[str] = []
+    seen = set()
+    for m in PUB_NO_RE.finditer(html_text):
+        pn = m.group(0).upper()
+        if country_u and len(country_u) == 2:
+            if not (pn.startswith(country_u) or pn.startswith("WO") or pn.startswith("EP")):
+                continue
+        if pn in seen:
+            continue
+        seen.add(pn)
+        out.append(pn)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _pn_url_for_source(source: str, pn: str) -> str:
+    s = source.strip().lower()
+    if s == "google patents":
+        return f"https://patents.google.com/patent/{pn}"
+    if s == "espacenet":
+        return f"https://worldwide.espacenet.com/patent/search/publication/{pn}"
+    if s == "lens.org":
+        q = urllib.parse.quote(pn)
+        return f"https://www.lens.org/lens/search/patent/list?q={q}"
+    if s == "cnipa":
+        q = urllib.parse.quote(pn)
+        return f"https://pss-system.cponline.cnipa.gov.cn/conventionalSearch?searchWord={q}"
+    return ""
+
+
+def _records_from_search_page(
+    source: str,
+    search_url: str,
+    query: str,
+    limit: int,
+    country: str,
+    timeout: int,
+    retries: int,
+    backoff: float,
+    jitter: float,
+) -> List[Dict[str, Any]]:
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    raw = _http_get(search_url, headers=headers, timeout=timeout, retries=retries, backoff=backoff, jitter=jitter)
+    text = raw.decode("utf-8", errors="replace")
+    pns = _extract_publication_numbers(text, country=country, max_items=max(30, limit * 3))
+    out: List[Dict[str, Any]] = []
+    for pn in pns[:limit]:
+        out.append(
+            {
+                "source": source,
+                "patent_number": pn,
+                "title": f"{pn} ({source} recall)",
+                "abstract": "",
+                "url": _pn_url_for_source(source, pn),
+                "recall_method": "search_page_regex",
+            }
+        )
+    return out
+
+
+def search_google_patents_xhr(
+    query: str,
+    limit: int,
+    country: str,
+    timeout: int,
+    retries: int,
+    backoff: float,
+    jitter: float,
+) -> List[Dict[str, Any]]:
+    encoded_query = urllib.parse.quote(f"{query} country:{country}")
+    url = f"https://patents.google.com/xhr/query?url=q%3D{encoded_query}&num={limit}&exp="
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+    raw = _http_get(url, headers=headers, timeout=timeout, retries=retries, backoff=backoff, jitter=jitter)
+    data = json.loads(raw.decode("utf-8", errors="replace"))
+    results: List[Dict[str, Any]] = []
+    clusters = (data.get("results") or {}).get("cluster") or []
+    for cluster in clusters:
+        for result in cluster.get("result", []) or []:
+            patent = result.get("patent") or {}
+            pub = str(patent.get("publication_number", "") or "").strip()
+            title = str(patent.get("title", "") or "").replace("<b>", "").replace("</b>", "").strip()
+            abstract = str(patent.get("abstract", "") or "").replace("<b>", "").replace("</b>", "").strip()
+            if not (pub or title):
+                continue
+            results.append(
+                {
+                    "source": "Google Patents",
+                    "patent_number": pub,
+                    "title": title or f"{pub} (Google Patents)",
+                    "abstract": abstract[:1500],
+                    "assignee": str(patent.get("assignee", "") or ""),
+                    "filing_date": str(patent.get("filing_date", "") or ""),
+                    "url": f"https://patents.google.com/patent/{pub}" if pub else "",
+                    "recall_method": "google_xhr",
+                }
+            )
+    return results[:limit]
+
+
+def search_google_patents_html(
+    query: str,
+    limit: int,
+    country: str,
+    timeout: int,
+    retries: int,
+    backoff: float,
+    jitter: float,
+) -> List[Dict[str, Any]]:
+    q = urllib.parse.quote(f"{query} country:{country}")
+    url = f"https://patents.google.com/?q={q}"
+    out = _records_from_search_page(
+        source="Google Patents",
+        search_url=url,
+        query=query,
+        limit=limit,
+        country=country,
+        timeout=timeout,
+        retries=retries,
+        backoff=backoff,
+        jitter=jitter,
+    )
+    for x in out:
+        x["recall_method"] = "google_html"
+    return out
+
+
 def search_google_patents(
     query: str,
     limit: int = 30,
@@ -153,54 +325,118 @@ def search_google_patents(
     backoff: float = 1.8,
     jitter: float = 0.25,
 ) -> List[Dict[str, Any]]:
-    encoded_query = urllib.parse.quote(f"{query} country:{country}")
-    url = f"https://patents.google.com/xhr/query?url=q%3D{encoded_query}&num={limit}&exp="
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-    raw = _http_get(
-        url,
-        headers=headers,
-        timeout=timeout,
-        retries=retries,
-        backoff=backoff,
-        jitter=jitter,
-    )
-    data = json.loads(raw.decode("utf-8", errors="replace"))
-    results: List[Dict[str, Any]] = []
-    clusters = (data.get("results") or {}).get("cluster") or []
-    for cluster in clusters:
-        for result in cluster.get("result", []) or []:
-            patent = (result.get("patent") or {})
-            pub = patent.get("publication_number", "") or ""
-            title = (patent.get("title", "") or "").replace("<b>", "").replace("</b>", "")
-            abstract = (patent.get("abstract", "") or "").replace("<b>", "").replace("</b>", "")
-            results.append({
-                "source": "Google Patents",
-                "patent_number": pub,
-                "title": title.strip(),
-                "abstract": abstract[:1500].strip(),
-                "assignee": patent.get("assignee", "") or "",
-                "filing_date": patent.get("filing_date", "") or "",
-                "url": f"https://patents.google.com/patent/{pub}" if pub else "",
-            })
-    return results[:limit]
+    last_err: Optional[Exception] = None
+    try:
+        xhr_items = search_google_patents_xhr(query, limit, country, timeout, retries, backoff, jitter)
+        if xhr_items:
+            return xhr_items[:limit]
+    except Exception as e:
+        last_err = e
 
-def search_lens(query: str, limit: int = 20) -> List[Dict]:
+    try:
+        html_items = search_google_patents_html(query, limit, country, timeout, retries, backoff, jitter)
+        if html_items:
+            return html_items[:limit]
+    except Exception as e:
+        last_err = e
+
+    if last_err is not None:
+        raise last_err
+    return []
+
+
+def search_lens(
+    query: str,
+    limit: int = 20,
+    country: str = "CN",
+    timeout: int = 30,
+    retries: int = 3,
+    backoff: float = 1.8,
+    jitter: float = 0.25,
+) -> List[Dict[str, Any]]:
     encoded_query = urllib.parse.quote(query)
     url = f"https://www.lens.org/lens/search/patent/list?q={encoded_query}&n={limit}"
-    return [{"source":"Lens.org","note":"Lens 页面结构可能变化，建议浏览器访问检索链接","url":url}]
+    try:
+        items = _records_from_search_page(
+            source="Lens.org",
+            search_url=url,
+            query=query,
+            limit=limit,
+            country=country,
+            timeout=timeout,
+            retries=retries,
+            backoff=backoff,
+            jitter=jitter,
+        )
+        if items:
+            return items
+    except Exception:
+        pass
+    return [{"source": "Lens.org", "note": "Lens 页面解析失败，仅返回检索链接。", "url": url}]
 
-def search_espacenet(query: str, limit: int = 20) -> List[Dict]:
+
+def search_espacenet(
+    query: str,
+    limit: int = 20,
+    country: str = "CN",
+    timeout: int = 30,
+    retries: int = 3,
+    backoff: float = 1.8,
+    jitter: float = 0.25,
+) -> List[Dict[str, Any]]:
     encoded_query = urllib.parse.quote(query)
     url = f"https://worldwide.espacenet.com/patent/search?q={encoded_query}"
-    return [{"source":"Espacenet","note":"需浏览器访问，此处提供搜索链接","url":url}]
+    try:
+        items = _records_from_search_page(
+            source="Espacenet",
+            search_url=url,
+            query=query,
+            limit=limit,
+            country=country,
+            timeout=timeout,
+            retries=retries,
+            backoff=backoff,
+            jitter=jitter,
+        )
+        if items:
+            return items
+    except Exception:
+        pass
+    return [{"source": "Espacenet", "note": "Espacenet 页面解析失败，仅返回检索链接。", "url": url}]
 
-def search_cnipa(query: str, limit: int = 20) -> List[Dict]:
+
+def search_cnipa(
+    query: str,
+    limit: int = 20,
+    country: str = "CN",
+    timeout: int = 30,
+    retries: int = 3,
+    backoff: float = 1.8,
+    jitter: float = 0.25,
+) -> List[Dict[str, Any]]:
     encoded_query = urllib.parse.quote(query)
     url = f"https://pss-system.cponline.cnipa.gov.cn/conventionalSearch?searchWord={encoded_query}"
-    return [{"source":"国知局CNIPA","note":"官方数据库通常需要登录，此处提供搜索链接","url":url}]
+    try:
+        items = _records_from_search_page(
+            source="CNIPA",
+            search_url=url,
+            query=query,
+            limit=limit,
+            country=country,
+            timeout=timeout,
+            retries=retries,
+            backoff=backoff,
+            jitter=jitter,
+        )
+        if items:
+            return items
+    except Exception:
+        pass
+    return [{"source": "CNIPA", "note": "CNIPA 页面解析失败，仅返回检索链接。", "url": url}]
+
 
 def analyze_similarity(query: str, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    kws = [k for k in re.split(r"\\s+", query.lower().strip()) if k]
+    kws = [k for k in re.split(r"\s+", query.lower().strip()) if k]
     kw_set = set(kws)
     for it in items:
         if "note" in it:
@@ -209,6 +445,7 @@ def analyze_similarity(query: str, items: List[Dict[str, Any]]) -> List[Dict[str
         matched = sum(1 for kw in kw_set if kw in text) if kw_set else 0
         it["similarity_score"] = round((matched / len(kw_set) * 100.0), 1) if kw_set else 0.0
     return sorted(items, key=lambda d: d.get("similarity_score", 0.0), reverse=True)
+
 
 def run_sources(
     query: str,
@@ -223,9 +460,9 @@ def run_sources(
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     funcs: Dict[str, Callable[[str], List[Dict[str, Any]]]] = {
         "google": lambda q: search_google_patents(q, limit, country, timeout, retries, backoff, jitter),
-        "lens": lambda q: search_lens(q, limit),
-        "espacenet": lambda q: search_espacenet(q, limit),
-        "cnipa": lambda q: search_cnipa(q, limit),
+        "lens": lambda q: search_lens(q, limit, country, timeout, retries, backoff, jitter),
+        "espacenet": lambda q: search_espacenet(q, limit, country, timeout, retries, backoff, jitter),
+        "cnipa": lambda q: search_cnipa(q, limit, country, timeout, retries, backoff, jitter),
     }
     results: List[Dict[str, Any]] = []
     failures: List[Dict[str, Any]] = []
@@ -233,18 +470,19 @@ def run_sources(
         with ThreadPoolExecutor(max_workers=len(sources)) as ex:
             fut = {ex.submit(funcs[s], query): s for s in sources if s in funcs}
             for f in as_completed(fut):
+                src = fut[f]
                 try:
                     results.extend(f.result())
                 except Exception as e:
                     failures.append(
                         {
                             "query": query,
-                            "source": fut[f],
+                            "source": src,
                             "error": str(e),
                             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         }
                     )
-                    print(f"[{fut[f]}] 搜索失败: {e}", file=sys.stderr)
+                    print(f"[{src}] 搜索失败: {e}", file=sys.stderr)
     else:
         for s in sources:
             if s not in funcs:
@@ -263,6 +501,7 @@ def run_sources(
                 print(f"[{s}] 搜索失败: {e}", file=sys.stderr)
     return results, failures
 
+
 def load_queries(path: str) -> List[str]:
     with open(path, "r", encoding="utf-8-sig") as f:
         obj = json.load(f)
@@ -272,43 +511,49 @@ def load_queries(path: str) -> List[str]:
         return [str(q) for q in obj if str(q).strip()]
     raise ValueError("queries.json must be a list or {queries:[...]}")
 
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="多平台专利检索（召回阶段）")
-    p.add_argument("--queries", help="queries.json（list 或 {queries:[...]})")
-    p.add_argument("query", nargs="?", help="单条检索关键词（空格分隔）")
-    p.add_argument("--limit","-n", type=int, default=30)
-    p.add_argument("--country","-c", default="CN")
-    p.add_argument("--source","-s", default="google", help="google/lens/espacenet/cnipa/all")
-    p.add_argument("--analyze","-a", action="store_true", help="相似度（关键词命中）排序")
-    p.add_argument("--parallel","-p", action="store_true")
+    p = argparse.ArgumentParser(description="Patent recall search (strict workflow mode).")
+    p.add_argument("--queries", help="queries.json (list or {queries:[...]})")
+    p.add_argument("query", nargs="?", help="single query")
+    p.add_argument("--limit", "-n", type=int, default=30)
+    p.add_argument("--country", "-c", default="CN")
+    p.add_argument("--source", "-s", default="google", help="google/lens/espacenet/cnipa/all")
+    p.add_argument("--analyze", "-a", action="store_true", help="sort by keyword-match score")
+    p.add_argument("--parallel", "-p", action="store_true")
     p.add_argument("--timeout", type=int, default=45, help="HTTP timeout seconds")
-    p.add_argument("--retries", type=int, default=4, help="Retry attempts on timeout/5xx/429")
-    p.add_argument("--backoff", type=float, default=1.8, help="Exponential backoff base")
-    p.add_argument("--jitter", type=float, default=0.25, help="Random jitter factor for retry sleep")
-    p.add_argument("--query-sleep", type=float, default=2.0, help="Sleep between queries (seconds)")
-    p.add_argument("--query-jitter", type=float, default=0.3, help="Jitter for --query-sleep")
-    p.add_argument("--min-query-tokens", type=int, default=2, help="Drop low-information queries")
+    p.add_argument("--retries", type=int, default=4, help="retry attempts on timeout/5xx/429")
+    p.add_argument("--backoff", type=float, default=1.8, help="exponential backoff base")
+    p.add_argument("--jitter", type=float, default=0.25, help="retry sleep jitter")
+    p.add_argument("--query-sleep", type=float, default=2.0, help="sleep between queries")
+    p.add_argument("--query-jitter", type=float, default=0.3, help="query sleep jitter")
+    p.add_argument("--min-query-tokens", type=int, default=2, help="drop low-information queries")
     p.add_argument(
         "--strict-query-quality",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Fail when all queries are dropped by quality gate",
+        help="fail when all queries are dropped by quality gate",
     )
-    p.add_argument("--fail-on-empty", action="store_true", help="Exit non-zero when no recall items")
-    p.add_argument("--min-unique-patents", type=int, default=0, help="Recall gate: minimum unique patent hits")
     p.add_argument(
-        "--fail-on-low-recall",
-        action="store_true",
-        help="Exit non-zero when unique patent hits < --min-unique-patents",
+        "--strict-source-integrity",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="fail when source looks synthetic/unknown",
     )
-    p.add_argument("--out-json", default=None, help="输出 prior_art.json（建议）")
-    p.add_argument("--out-md", default=None, help="输出 prior_art.md（可选）")
-    p.add_argument("--failures-json", default=None, help="Write structured failures for replay/debug")
+    p.add_argument("--fail-on-empty", action="store_true", help="exit non-zero when no recall items")
+    p.add_argument("--min-unique-patents", type=int, default=0, help="minimum unique patent hits")
+    p.add_argument("--fail-on-low-recall", action="store_true", help="exit non-zero when recall below threshold")
+    p.add_argument("--out-json", default=None, help="write prior_art.json")
+    p.add_argument("--out-md", default=None, help="write prior_art.md")
+    p.add_argument("--failures-json", default=None, help="write structured failures")
     args = p.parse_args()
 
-    sources = ["google","lens","espacenet","cnipa"] if args.source == "all" else [s.strip().lower() for s in args.source.split(",") if s.strip()]
+    sources = (
+        ["google", "lens", "espacenet", "cnipa"]
+        if args.source == "all"
+        else [s.strip().lower() for s in args.source.split(",") if s.strip()]
+    )
 
-    queries: List[str] = []
     if args.queries:
         queries = load_queries(args.queries)
     elif args.query:
@@ -318,7 +563,7 @@ def main() -> int:
 
     valid_queries, dropped_queries = sanitize_queries(queries, min_tokens=args.min_query_tokens)
     for dq in dropped_queries:
-        print(f"[warn] 丢弃低质量query: {dq['query']} ({dq['reason']})", file=sys.stderr)
+        print(f"[warn] dropped low-quality query: {dq['query']} ({dq['reason']})", file=sys.stderr)
     if args.strict_query_quality and not valid_queries:
         raise SystemExit("All queries failed quality gate. Fix encoding/keywords and retry.")
     if not valid_queries:
@@ -349,6 +594,10 @@ def main() -> int:
             _sleep_with_jitter(args.query_sleep, args.query_jitter)
 
     all_items = dedup_items(all_items)
+    validation_errors = validate_result_items(all_items)
+    if validation_errors and args.strict_source_integrity:
+        raise SystemExit("prior_art validation failed:\n- " + "\n- ".join(validation_errors[:20]))
+
     unique_patents = count_unique_patents(all_items)
 
     if args.out_json:
@@ -357,32 +606,35 @@ def main() -> int:
         print(f"[ok] written json: {args.out_json}", file=sys.stderr)
 
     if args.out_md:
-        by: Dict[str, List[Dict]] = {}
+        by: Dict[str, List[Dict[str, Any]]] = {}
         for it in all_items:
-            by.setdefault(it.get("source","未知"), []).append(it)
-        lines: List[str] = ["## 专利检索结果\\n"]
+            by.setdefault(str(it.get("source", "Unknown")), []).append(it)
+
+        lines: List[str] = ["## 专利检索结果\n"]
         for src, arr in by.items():
-            lines.append(f"### {src}\\n")
-            for i, it in enumerate(arr, 1):
+            lines.append(f"### {src}\n")
+            for i, it in enumerate(arr, start=1):
                 if "note" in it:
-                    lines.append(f"- 提示：{it.get('note','')}")
-                    if it.get("url"): lines.append(f"  - 链接：{it['url']}")
+                    lines.append(f"- 提示：{it.get('note', '')}")
+                    if it.get("url"):
+                        lines.append(f"  - 链接：{it['url']}")
                     continue
-                lines.append(f"{i}. **{it.get('title','无标题')}**")
-                if it.get("patent_number"): lines.append(f"   - 专利号：{it['patent_number']}")
-                if it.get("similarity_score") is not None: lines.append(f"   - 相似度：{it.get('similarity_score',0)}%")
-                if it.get("url"): lines.append(f"   - 链接：{it['url']}")
+                lines.append(f"{i}. **{it.get('title', '(no title)')}**")
+                if it.get("patent_number"):
+                    lines.append(f"   - 专利号：{it['patent_number']}")
+                if it.get("similarity_score") is not None:
+                    lines.append(f"   - 相似度：{it.get('similarity_score', 0)}%")
+                if it.get("url"):
+                    lines.append(f"   - 链接：{it['url']}")
                 if it.get("abstract"):
-                    a = it["abstract"].replace("\\n"," ").strip()
-                    lines.append(f"   - 摘要：{a[:220]}{'...' if len(a)>220 else ''}")
+                    a = str(it["abstract"]).replace("\n", " ").strip()
+                    lines.append(f"   - 摘要：{a[:220]}{'...' if len(a) > 220 else ''}")
             lines.append("")
         with open(args.out_md, "w", encoding="utf-8") as f:
-            f.write("\\n".join(lines))
+            f.write("\n".join(lines))
         print(f"[ok] written md: {args.out_md}", file=sys.stderr)
 
-    failures_json = args.failures_json
-    if not failures_json and args.out_json:
-        failures_json = f"{args.out_json}.failures.json"
+    failures_json = args.failures_json or (f"{args.out_json}.failures.json" if args.out_json else None)
     if failures_json:
         with open(failures_json, "w", encoding="utf-8") as f:
             json.dump(failures, f, ensure_ascii=False, indent=2)
@@ -396,6 +648,7 @@ def main() -> int:
         print(f"[ok] unique patents: {unique_patents}", file=sys.stderr)
         print(f"[ok] valid queries: {len(valid_queries)}, dropped queries: {len(dropped_queries)}", file=sys.stderr)
         print(f"[ok] source failures: {len(failures)}", file=sys.stderr)
+
     if args.fail_on_empty and len(all_items) == 0:
         return 2
     if args.fail_on_low_recall and unique_patents < max(0, args.min_unique_patents):
@@ -405,6 +658,7 @@ def main() -> int:
         )
         return 3
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

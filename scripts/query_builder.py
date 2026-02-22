@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,30}|[\u4e00-\u9fff]{2,8}")
+MOJIBAKE_MARKERS = set("锛銆鍙鏃鏈鍥鍚鎴鍙闂涓鸿澶勭悊")
 
 def dedup(seq: List[str]) -> List[str]:
     seen = set()
@@ -33,6 +34,10 @@ def is_garbled_text(text: str) -> bool:
         return True
     if q_count >= 2 and q_count / max(1, len(s)) >= 0.2:
         return True
+    if len(s) >= 4:
+        marker_hits = sum(1 for ch in s if ch in MOJIBAKE_MARKERS)
+        if marker_hits / len(s) >= 0.25:
+            return True
     return False
 
 def split_terms(raw_terms: List[Any]) -> Tuple[List[str], List[str]]:
