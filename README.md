@@ -14,6 +14,7 @@
 - 🧾 按阅读计划抽取证据（`evidence.json`）
 - 🧭 由 agent 优先生成检索词并做门禁
 - 🔎 执行专利检索并产出 `prior_art.json`
+- 🎯 基于专利号+摘要执行相关性重排，产出 `prior_art.reranked.json`
 - 🧲 抓取 TopK 对比文献 claims（自动 + 接管回填）
 - 📊 生成 claims-first 对比矩阵 `novelty_matrix.json`
 - 📝 生成交底 Markdown 并渲染 `disclosure.docx`
@@ -30,6 +31,7 @@ repo2patent/
 │  ├─ evidence_builder.py
 │  ├─ query_builder.py
 │  ├─ patent_search.py
+│  ├─ prior_art_rerank.py
 │  ├─ patent_fetch_claims.py
 │  ├─ manual_claims_template.py
 │  ├─ novelty_matrix.py
@@ -68,7 +70,8 @@ python -m scripts.repo_indexer --repo .patent_assistant/repo --out .patent_assis
 python -m scripts.evidence_builder --repo .patent_assistant/repo --index .patent_assistant/repo_index.json --plan reading_plan.json --out .patent_assistant/evidence.json
 python -m scripts.query_builder --profile invention_profile.json --agent-queries queries.agent.json --query-source auto --strict --out queries.json
 python -m scripts.patent_search --queries queries.json -s all -c CN -n 30 -a --strict-source-integrity --fail-on-empty --min-unique-patents 10 --fail-on-low-recall --out-json prior_art.json --failures-json prior_art.failures.json
-python -m scripts.patent_fetch_claims --in prior_art.json --topk 10 --claim-sources auto --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
+python -m scripts.prior_art_rerank --in prior_art.json --profile invention_profile.json --out prior_art.reranked.json
+python -m scripts.patent_fetch_claims --in prior_art.reranked.json --topk 10 --claim-sources auto --prefer-relevance --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
 python -m scripts.novelty_matrix --profile invention_profile.json --prior-art-full prior_art_full.json --min-claims-ok-ratio 0.3 --fail-on-low-claims --out novelty_matrix.json
 # LLM 生成 disclosure.md 后：
 python -m scripts.docx_renderer --input disclosure.md --output disclosure.docx --font-name 宋体
@@ -284,6 +287,43 @@ python -m scripts.patent_search --queries queries.json -s all -c CN -n 30 -a --s
 
 ---
 
+## 7.5. 🎯 相关性重排（Step 7.5）
+
+目标：
+- 在拿到“专利号 + 标题/摘要”后，先做语义相关性排序，再决定 claims 抓取优先级。
+
+命令：
+
+```bash
+python -m scripts.prior_art_rerank --in prior_art.json --profile invention_profile.json --out prior_art.reranked.json --out-md prior_art.rerank.md
+```
+
+可选（agent 融合重排分数）：
+
+```bash
+python -m scripts.prior_art_rerank --in prior_art.json --profile invention_profile.json --agent-rerank rerank.agent.json --agent-weight 0.7 --out prior_art.reranked.json
+```
+
+输出：
+- `prior_art.reranked.json`
+- `prior_art.rerank.md`（可选）
+
+终端示例：
+
+```text
+[ok] reranked items: 60
+[ok] top10 avg relevance: 0.4621
+[ok] out: prior_art.reranked.json
+```
+
+门禁（可选）：
+- `--fail-on-low-relevance --min-topk-avg-score X`：TopK 平均相关性低于阈值时失败（exit code `2`）。
+
+下游衔接：
+- Step 8 建议输入 `prior_art.reranked.json`，并开启 `--prefer-relevance`。
+
+---
+
 ## 8A. 🧲 自动抓取 claims（Step 8A）
 
 目标：
@@ -292,7 +332,7 @@ python -m scripts.patent_search --queries queries.json -s all -c CN -n 30 -a --s
 命令：
 
 ```bash
-python -m scripts.patent_fetch_claims --in prior_art.json --topk 10 --claim-sources auto --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
+python -m scripts.patent_fetch_claims --in prior_art.reranked.json --topk 10 --claim-sources auto --prefer-relevance --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
 ```
 
 输出：
@@ -414,6 +454,7 @@ python -m scripts.docx_renderer --input disclosure.md --output disclosure.docx -
 - `invention_profile.json`
 - `queries.json`
 - `prior_art.json`
+- `prior_art.reranked.json`
 - `prior_art.failures.json`
 - `prior_art_full.json`
 - `claims_manual.json`（仅当自动抓取不足时）
@@ -530,6 +571,27 @@ python -m scripts.repo_fetcher --repo <repo_url_or_local_path> --ref main --work
 | `--out-md` | 否 | `None` | 输出 Markdown 列表 |
 | `--failures-json` | 否 | `None` | 输出失败明细 JSON |
 
+## `scripts/prior_art_rerank.py`
+
+功能：
+- 基于 `invention_profile` 对 `prior_art` 做相关性重排（标题/摘要语义 + query 命中）。
+- 可融合 agent 评分（`rerank.agent.json`），输出最终 `relevance_score`。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--in` | 是 | - | 输入 `prior_art.json` |
+| `--profile` | 是 | - | `invention_profile.json` |
+| `--out` | 是 | - | 输出 `prior_art.reranked.json` |
+| `--out-md` | 否 | `None` | 输出重排摘要 Markdown |
+| `--agent-rerank` | 否 | `None` | agent 评分文件（`{items:[{patent_number,score,reason}]}`） |
+| `--agent-weight` | 否 | `0.7` | agent 分数融合权重 |
+| `--topk-for-gate` | 否 | `10` | 相关性门禁统计 TopK |
+| `--min-topk-avg-score` | 否 | `0.0` | TopK 平均分最小阈值 |
+| `--fail-on-low-relevance` / `--no-fail-on-low-relevance` | 否 | `False` | 低相关性是否失败（exit 2） |
+| `--strict-source-integrity` / `--no-strict-source-integrity` | 否 | `True` | prior_art 来源完整性校验 |
+
 ## `scripts/patent_fetch_claims.py`
 
 功能：
@@ -550,6 +612,7 @@ python -m scripts.repo_fetcher --repo <repo_url_or_local_path> --ref main --work
 | `--backoff` | 否 | `1.8` | 退避系数 |
 | `--jitter` | 否 | `0.25` | 抖动 |
 | `--claim-sources` | 否 | `auto` | `google,espacenet,cnipa,lens,fpo` 子集或 `auto` |
+| `--prefer-relevance` / `--no-prefer-relevance` | 否 | `True` | 若存在 `relevance_score`，TopK 优先按相关性选取 |
 | `--resume` / `--no-resume` | 否 | `True` | 复用既有 `--out` 结果 |
 | `--manual-claims` | 否 | `None` | 合并手工 claims JSON |
 | `--require-min-ok-ratio` | 否 | `0.0` | 最低通过率门槛（低于 exit 2） |
@@ -607,6 +670,7 @@ python -m scripts.repo_fetcher --repo <repo_url_or_local_path> --ref main --work
 - `query_builder --strict`：无有效 query 失败。
 - `patent_search --fail-on-empty`：返回码 `2`。
 - `patent_search --fail-on-low-recall --min-unique-patents N`：返回码 `3`。
+- `prior_art_rerank --fail-on-low-relevance`：相关性门禁失败返回码 `2`。
 - `patent_fetch_claims --require-min-ok-ratio X`：返回码 `2`。
 - `novelty_matrix --fail-on-low-claims`：低于阈值时报错退出。
 

@@ -275,3 +275,10 @@ python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
 - Without the fields above, manual claims merge must fail in strict mode.
 - If network/search endpoint is blocked, explicitly report blocker and request user-provided accessible links/PDF; do not create fake prior-art entries.
 - Auto claim-source routing includes `fpo` (FreePatentsOnline) as a strict fallback, especially for US publications/grants when Google/Espacenet pages are blocked.
+
+## Step 7.5 Semantic Reranking (Mandatory in strict workflow)
+- After Step 7 search, run `scripts/prior_art_rerank.py` on `prior_art.json` before claims fetching.
+- Use `invention_profile.json` as semantic anchor; optional `--agent-rerank` can blend agent-scored relevance.
+- Recommended output: `prior_art.reranked.json` and feed it into Step 8 (`patent_fetch_claims`).
+- In Step 8, keep `--prefer-relevance` enabled so TopK claims fetching follows reranked relevance.
+- Optional gate: `--fail-on-low-relevance --min-topk-avg-score <X>` to prevent low-quality candidates entering claims stage.

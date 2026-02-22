@@ -447,6 +447,12 @@ def main() -> int:
     p.add_argument("--manual-claims", default=None, help="JSON file to merge manual claims")
     p.add_argument("--require-min-ok-ratio", type=float, default=0.0, help="exit non-zero if ok ratio below threshold")
     p.add_argument(
+        "--prefer-relevance",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="when relevance_score exists in prior_art, prioritize it for TopK claim fetching",
+    )
+    p.add_argument(
         "--strict-prior-art",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -498,14 +504,34 @@ def main() -> int:
         seen.add(key)
         items.append(it)
 
-    def claimability_score(it: Dict[str, Any]) -> Tuple[int, int, int]:
+    def as_float(v: Any) -> Optional[float]:
+        try:
+            x = float(v)
+        except Exception:
+            return None
+        if x > 1.0:
+            x = x / 100.0
+        if x < 0:
+            x = 0.0
+        if x > 1:
+            x = 1.0
+        return x
+
+    def claimability_score(it: Dict[str, Any]) -> Tuple[int, int, float, int, int]:
         pn = normalize_patent_number(it.get("patent_number", ""))
         url = str(it.get("url", "") or "").strip().lower()
         src = str(it.get("source", "") or "").strip().lower()
         has_pn = 1 if pn else 0
+        rel = as_float(it.get("relevance_score"))
+        if rel is None:
+            rel = as_float(it.get("semantic_relevance_score"))
+        has_rel = 1 if rel is not None else 0
+        rel_score = rel if rel is not None else 0.0
         google_url = 1 if "patents.google.com/patent/" in url else 0
         google_source = 1 if src == "google patents" else 0
-        return (has_pn, google_url, google_source)
+        if args.prefer_relevance:
+            return (has_pn, has_rel, rel_score, google_url, google_source)
+        return (has_pn, 0, 0.0, google_url, google_source)
 
     items = sorted(items, key=claimability_score, reverse=True)
     items = items[: max(1, args.topk)]
