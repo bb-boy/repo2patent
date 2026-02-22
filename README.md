@@ -1,26 +1,26 @@
 # repo2patent
 
-`repo2patent` 是一个面向中国发明专利交底场景的工作流：从 GitHub 项目提取技术证据，生成检索式并完成专利召回，抓取/补录 claims，构建特征对比矩阵，最后产出可交付的 `disclosure.docx`。
+> 🧠 从 GitHub 项目到专利技术交底书的可审计流水线  
+> 🔍 强制包含检索与 claims（权利要求）比对  
+> 📄 最终输出 Word（`.docx`，默认宋体）
 
-## 项目解决什么问题
+## ✨ 这个 Skill 做什么
 
-传统“写交底书”常见断点是：
-1. 对代码理解不完整，技术点描述空泛。
-2. 只做了标题/摘要级检索，没有进入 claims 级别比对。
-3. 新颖点缺少结构化证据链，难以复核。
+`repo2patent` 面向中国发明专利场景，核心目标是把“代码仓库里的技术方案”转成“可交付的专利交底材料”。
 
-本项目将流程拆成可审计的中间产物，每一步都有文件输出，支持失败重试和人工兜底。
+它不是单纯写文案，而是一个分阶段流水线：
 
-## 核心能力
+- 📦 读取仓库并建立索引（知道该看哪些文件）
+- 🧾 按阅读计划抽取证据（`evidence.json`）
+- 🧭 由 agent 优先生成检索词并做门禁
+- 🔎 执行专利检索并产出 `prior_art.json`
+- 🧲 抓取 TopK 对比文献 claims（自动 + 接管回填）
+- 📊 生成 claims-first 对比矩阵 `novelty_matrix.json`
+- 📝 生成交底 Markdown 并渲染 `disclosure.docx`
 
-1. 从仓库构建 `repo_index.json`，给 LLM 一个结构化“读码导航”。
-2. 用 `reading_plan.json` 控制读码范围，输出可追溯 `evidence.json`。
-3. 基于 `invention_profile.json` 生成检索式并执行多源召回。
-4. 抓取 TopK 对比文献 claims，失败时自动走人工 claims 模板兜底。
-5. 输出 claims-first 的 `novelty_matrix.json`，给出候选新颖点组合。
-6. 生成结构化 `disclosure.json`，再构建 `disclosure.md` 并渲染 `disclosure.docx`，流程日志固定输出到 `run_report.md`。
+---
 
-## 目录结构
+## 🗂️ 仓库结构
 
 ```text
 repo2patent/
@@ -33,58 +33,69 @@ repo2patent/
 │  ├─ patent_fetch_claims.py
 │  ├─ manual_claims_template.py
 │  ├─ novelty_matrix.py
-│  ├─ disclosure_builder.py
-│  ├─ run_report_builder.py
 │  └─ docx_renderer.py
 ├─ references/
 │  ├─ 00_authoritative_sources.md
 │  ├─ ...
 │  └─ schemas/
 ├─ templates/
-│  ├─ disclosure_structured_template.json
 │  └─ disclosure_template_cn_invention.md
+├─ SKILL.md
 └─ README.md
 ```
 
-## 依赖
+---
 
-1. Python 3.8+
-2. Git
-3. 可选：`python-docx`（只有输出 Word 时需要）
+## ⚙️ 环境依赖
+
+- Python 3.8+
+- Git
+- 可选：`python-docx`（生成 Word 必需）
 
 ```bash
 pip install python-docx
 ```
 
-## 快速开始（端到端）
+---
 
-在项目根目录执行：
+## 🚀 5 分钟快速开始（端到端）
+
+> 下列命令在仓库根目录执行。
 
 ```bash
-python scripts/repo_fetcher.py --repo <repo_url_or_local_path> --ref <optional> --workdir .patent_assistant --force
-python scripts/repo_indexer.py --repo .patent_assistant/repo --out .patent_assistant/repo_index.json
-# LLM 生成 reading_plan.json（符合 references/schemas/reading_plan.schema.json）
-python scripts/evidence_builder.py --repo .patent_assistant/repo --index .patent_assistant/repo_index.json --plan reading_plan.json --out .patent_assistant/evidence.json
-# LLM 生成 invention_profile.json（符合 references/schemas/invention_profile.schema.json）
-python scripts/query_builder.py --profile invention_profile.json --agent-queries queries.agent.json --query-source auto --out queries.json
-python scripts/patent_search.py --queries queries.json -s google -c CN -n 30 -a --min-unique-patents 10 --fail-on-low-recall --out-json prior_art.json --failures-json prior_art.failures.json
-python scripts/patent_fetch_claims.py --in prior_art.json --topk 10 --claim-sources auto --resume --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
-python scripts/novelty_matrix.py --profile invention_profile.json --prior-art-full prior_art_full.json --min-claims-ok-ratio 0.3 --out novelty_matrix.json
-# LLM 生成 novelty_findings.json + disclosure.json + missing_info.md
-python scripts/disclosure_builder.py --in disclosure.json --out-md disclosure.md --strict
-python scripts/run_report_builder.py --out run_report.md
-python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
+python -m scripts.repo_fetcher --repo <repo_url_or_local_path> --ref main --workdir .patent_assistant --force
+python -m scripts.repo_indexer --repo .patent_assistant/repo --out .patent_assistant/repo_index.json
+python -m scripts.evidence_builder --repo .patent_assistant/repo --index .patent_assistant/repo_index.json --plan reading_plan.json --out .patent_assistant/evidence.json
+python -m scripts.query_builder --profile invention_profile.json --agent-queries queries.agent.json --query-source auto --strict --out queries.json
+python -m scripts.patent_search --queries queries.json -s all -c CN -n 30 -a --strict-source-integrity --fail-on-empty --min-unique-patents 10 --fail-on-low-recall --out-json prior_art.json --failures-json prior_art.failures.json
+python -m scripts.patent_fetch_claims --in prior_art.json --topk 10 --claim-sources auto --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
+python -m scripts.novelty_matrix --profile invention_profile.json --prior-art-full prior_art_full.json --min-claims-ok-ratio 0.3 --fail-on-low-claims --out novelty_matrix.json
+# LLM 生成 disclosure.md 后：
+python -m scripts.docx_renderer --input disclosure.md --output disclosure.docx --font-name 宋体
 ```
 
-## 详细工作流（每一步含结果示例）
+---
 
-### Step 1: 拉取仓库并固化版本
+## 🧭 完整工作流（每一步含输入/输出/示例/门禁）
+
+## 1. 📥 拉取仓库并固化版本
+
+目标：
+- 获取可重复分析的代码快照，记录 commit。
+
+输入：
+- `--repo`（Git URL 或本地路径）
+- `--ref`（可选：分支/标签/提交）
 
 命令：
 
 ```bash
-python scripts/repo_fetcher.py --repo https://github.com/example/project.git --ref main --workdir .patent_assistant --force
+python -m scripts.repo_fetcher --repo https://github.com/example/project.git --ref main --workdir .patent_assistant --force
 ```
+
+输出：
+- `.patent_assistant/repo/`
+- `.patent_assistant/repo_meta.json`
 
 终端示例：
 
@@ -93,25 +104,25 @@ python scripts/repo_fetcher.py --repo https://github.com/example/project.git --r
 [ok] commit: 7d8a3d9c6e...
 ```
 
-产物：`.patent_assistant/repo_meta.json`
+门禁：
+- 目标目录已存在且未指定 `--force` 会失败。
+- 本地路径不存在会失败。
 
-```json
-{
-  "repo_input": "https://github.com/example/project.git",
-  "repo_path": "C:/work/repo2patent/.patent_assistant/repo",
-  "ref": "main",
-  "commit_sha": "7d8a3d9c6e...",
-  "fetched_at": "2026-02-22T02:00:00Z"
-}
-```
+---
 
-### Step 2: 生成仓库索引
+## 2. 🗺️ 建立仓库索引
+
+目标：
+- 生成结构化 `repo_index.json`，指导后续阅读计划。
 
 命令：
 
 ```bash
-python scripts/repo_indexer.py --repo .patent_assistant/repo --out .patent_assistant/repo_index.json
+python -m scripts.repo_indexer --repo .patent_assistant/repo --out .patent_assistant/repo_index.json
 ```
+
+输出：
+- `.patent_assistant/repo_index.json`
 
 终端示例：
 
@@ -121,24 +132,22 @@ python scripts/repo_indexer.py --repo .patent_assistant/repo --out .patent_assis
 [ok] out: .patent_assistant/repo_index.json
 ```
 
-产物：`.patent_assistant/repo_index.json`
+门禁：
+- 无硬门禁阈值；建议控制 `--max_files` 以避免过大仓库拖慢。
 
-```json
-{
-  "repo": {
-    "url": "https://github.com/example/project.git",
-    "path": "C:/work/repo2patent/.patent_assistant/repo",
-    "commit_sha": "7d8a3d9c6e..."
-  },
-  "entrypoints": ["src/main.py"],
-  "top_recommended": ["README.md", "src/main.py", "src/pipeline/scheduler.py"]
-}
-```
+---
 
-### Step 3: 让 LLM 产出 reading_plan.json
+## 3. 📚 生成阅读计划（LLM 步骤）
 
-输入：`repo_index.json`  
-约束：`references/schemas/reading_plan.schema.json`
+目标：
+- 让模型先决定“读哪些文件、读到什么粒度”。
+
+输入：
+- `repo_index.json`
+- 约束：`references/schemas/reading_plan.schema.json`
+
+输出：
+- `reading_plan.json`
 
 最小示例：
 
@@ -146,38 +155,35 @@ python scripts/repo_indexer.py --repo .patent_assistant/repo --out .patent_assis
 {
   "plan_version": "1.0",
   "goals": ["提取关键技术机制", "定位可专利化特征"],
-  "limits": {
-    "max_files": 20,
-    "max_total_chars": 150000
-  },
+  "limits": {"max_files": 20, "max_total_chars": 150000},
   "selections": [
-    {
-      "path": "README.md",
-      "read_type": "full",
-      "priority": 5,
-      "reason": "获取系统总览",
-      "expected_extract": ["系统目标", "模块边界"],
-      "tags": ["overview"]
-    },
     {
       "path": "src/main.py",
       "read_type": "head",
       "selectors": {"lines": 220},
-      "priority": 4,
-      "reason": "抓入口流程",
-      "expected_extract": ["入口参数", "主流程调用"]
+      "priority": 5,
+      "reason": "入口流程",
+      "expected_extract": ["关键流程", "关键参数"]
     }
   ]
 }
 ```
 
-### Step 4: 根据 reading plan 生成证据包
+---
+
+## 4. 🧩 抽取证据包
+
+目标：
+- 把代码证据落盘为 `evidence.json`，供后续 profile 与新颖点判断引用。
 
 命令：
 
 ```bash
-python scripts/evidence_builder.py --repo .patent_assistant/repo --index .patent_assistant/repo_index.json --plan reading_plan.json --out .patent_assistant/evidence.json
+python -m scripts.evidence_builder --repo .patent_assistant/repo --index .patent_assistant/repo_index.json --plan reading_plan.json --out .patent_assistant/evidence.json
 ```
+
+输出：
+- `.patent_assistant/evidence.json`
 
 终端示例：
 
@@ -187,544 +193,82 @@ python scripts/evidence_builder.py --repo .patent_assistant/repo --index .patent
 [ok] out: .patent_assistant/evidence.json
 ```
 
-产物：`.patent_assistant/evidence.json`
+---
 
-```json
-[
-  {
-    "id": "E0001",
-    "path": "src/pipeline/scheduler.py",
-    "line_range": [45, 103],
-    "excerpt": "class Scheduler: ...",
-    "tags": ["scheduling", "core_mechanism"],
-    "why_selected": "核心调度算法",
-    "source": "repo",
-    "read_type": "symbols"
-  }
-]
-```
+## 5. 🧠 生成发明画像（LLM 步骤）
 
-### Step 5: 让 LLM 产出 invention_profile.json
+目标：
+- 把证据提炼为可检索、可比对的结构化发明描述。
 
-输入：`repo_meta.json` + `evidence.json`  
-约束：`references/schemas/invention_profile.schema.json`
+输入：
+- `repo_meta.json` + `evidence.json`
+- 约束：`references/schemas/invention_profile.schema.json`
+
+输出：
+- `invention_profile.json`
 
 最小示例：
 
 ```json
 {
-  "title": "一种面向异构任务的自适应调度方法",
-  "technical_field": {
-    "domain": "分布式计算",
-    "sub_domain": "任务调度"
-  },
-  "background_problems": ["现有队列策略无法兼顾时延和吞吐"],
+  "title": "一种面向边缘场景的任务编排方法",
+  "technical_field": {"domain": "分布式系统", "sub_domain": "任务调度"},
   "core_problem": "多目标约束下调度不稳定",
-  "solution_overview": "构建带反馈的分层调度器并动态调权",
   "key_features": [
-    {"id": "F1", "text": "按任务画像分层入队", "evidence_ids": ["E0001"]},
-    {"id": "F2", "text": "使用反馈回路动态调整权重", "evidence_ids": ["E0003"]},
-    {"id": "F3", "text": "失败任务触发差异化重试策略", "evidence_ids": ["E0007"]}
+    {"id": "F1", "text": "按任务画像分层调度", "evidence_ids": ["E0001"]},
+    {"id": "F2", "text": "反馈闭环动态调整", "evidence_ids": ["E0003"]},
+    {"id": "F3", "text": "差异化重试策略", "evidence_ids": ["E0007"]}
   ],
-  "keywords": {
-    "cn": ["调度", "重试", "反馈控制"],
-    "en": ["scheduler", "retry", "feedback loop"]
-  }
+  "keywords": {"cn": ["调度", "反馈"], "en": ["scheduler", "feedback loop"]}
 }
 ```
 
-### Step 6: 生成检索式 queries.json
+---
+
+## 6. 🧪 生成检索词（agent-first）
+
+目标：
+- 由 agent 优先给出检索词，脚本执行质量门禁与回退合并。
 
 命令：
 
 ```bash
-python scripts/query_builder.py --profile invention_profile.json --agent-queries queries.agent.json --query-source auto --min-agent-queries 4 --out queries.json
+python -m scripts.query_builder --profile invention_profile.json --agent-queries queries.agent.json --query-source auto --min-agent-queries 4 --strict --out queries.json
 ```
+
+输出：
+- `queries.json`
 
 终端示例：
 
 ```text
 [ok] queries: 8
-[warn] agent query file not found: queries.agent.json
 [ok] out: queries.json
 ```
 
-产物：`queries.json`
+门禁：
+- `--strict` 默认开启：最终无有效 query 直接失败。
+- `--min-query-tokens` 默认 `2`：过滤低信息检索式。
+- `--query-source auto`：agent 不足时自动合并 profile，不跳步。
 
-```json
-{
-  "query_source": "profile_fallback_no_agent",
-  "agent_queries_raw_count": 0,
-  "agent_queries_valid_count": 0,
-  "queries": [
-    "调度 重试 反馈控制",
-    "scheduler retry feedback loop"
-  ],
-  "warnings": [
-    "agent query file not found: queries.agent.json"
-  ]
-}
-```
+---
 
-说明：`queries.agent.json` 支持两种格式。
+## 7. 🔍 执行专利检索（Step 7）
 
-```json
-["query one", "query two"]
-```
-
-```json
-{"queries": ["query one", "query two"]}
-```
-
-### Step 7: 执行专利召回 prior_art.json
+目标：
+- 得到可追溯 `prior_art.json` 与失败日志。
 
 命令：
 
 ```bash
-python scripts/patent_search.py --queries queries.json -s google -c CN -n 30 -a --min-unique-patents 10 --fail-on-low-recall --out-json prior_art.json --failures-json prior_art.failures.json
+python -m scripts.patent_search --queries queries.json -s all -c CN -n 30 -a --strict-source-integrity --fail-on-empty --min-unique-patents 10 --fail-on-low-recall --out-json prior_art.json --failures-json prior_art.failures.json
 ```
-
-终端示例：
-
-```text
-[ok] written json: prior_art.json
-[ok] total items: 34
-[ok] unique patents: 22
-[ok] valid queries: 8, dropped queries: 1
-[ok] source failures: 0
-```
-
-产物：`prior_art.json`
-
-```json
-[
-  {
-    "source": "Google Patents",
-    "patent_number": "CN114567890A",
-    "title": "一种任务调度方法及装置",
-    "abstract": "本发明公开了...",
-    "url": "https://patents.google.com/patent/CN114567890A",
-    "query": "调度 重试 反馈控制",
-    "query_index": 1,
-    "similarity_score": 66.7
-  }
-]
-```
-
-常见失败码：
-1. `--fail-on-empty` 且无结果时返回码 `2`
-2. `--fail-on-low-recall` 且唯一专利数不足时返回码 `3`
-
-### Step 8: 抓取 claims，生成 prior_art_full.json
-
-命令：
-
-```bash
-python scripts/patent_fetch_claims.py --in prior_art.json --topk 10 --claim-sources auto --resume --out prior_art_full.json --cache-dir .patent_assistant/patent_cache --require-min-ok-ratio 0.3
-```
-
-终端示例：
-
-```text
-[ok] fetched claims: 7/10 (ratio=0.700)
-[ok] status counts: {'ok': 6, 'ok_fallback': 1, 'fetch_blocked_403': 3}
-[ok] out: prior_art_full.json
-```
-
-产物：`prior_art_full.json`
-
-```json
-[
-  {
-    "source": "Google Patents",
-    "patent_number": "CN114567890A",
-    "title": "一种任务调度方法及装置",
-    "url": "https://patents.google.com/patent/CN114567890A",
-    "claims_status": "ok",
-    "claims_source": "google",
-    "claims_page_url": "https://patents.google.com/patent/CN114567890A",
-    "claims_text": "1. 一种任务调度方法，其特征在于...",
-    "claims": [
-      {"num": "1", "text": "一种任务调度方法，其特征在于..."}
-    ],
-    "claims_fetch_attempts": [
-      {
-        "source": "google",
-        "url": "https://patents.google.com/patent/CN114567890A",
-        "result": "ok",
-        "claims_count": 12
-      }
-    ]
-  }
-]
-```
-
-门禁：当 `ok/ok_fallback/manual_ok` 比例低于 `--require-min-ok-ratio` 时，脚本返回码 `2`。
-
-### Step 8B: claims 抓取失败时人工兜底
-
-先生成模板：
-
-```bash
-python scripts/manual_claims_template.py --in prior_art.json --topk 10 --out claims_manual.json --out-md claims_manual_checklist.md
-```
-
-终端示例：
-
-```text
-[ok] template items: 10
-[ok] out: claims_manual.json
-[ok] out-md: claims_manual_checklist.md
-```
-
-模板示例：
-
-```json
-{
-  "generated_at": "2026-02-22T02:20:00Z",
-  "input": "prior_art.json",
-  "topk": 10,
-  "items": [
-    {
-      "rank": 1,
-      "patent_number": "CN114567890A",
-      "url": "https://patents.google.com/patent/CN114567890A",
-      "claims_text": "",
-      "claims": [],
-      "notes": "Fill at least independent claim(s). Use plain text."
-    }
-  ]
-}
-```
-
-补录后再合并：
-
-```bash
-python scripts/patent_fetch_claims.py --in prior_art.json --topk 10 --resume --manual-claims claims_manual.json --require-min-ok-ratio 0.3 --out prior_art_full.json
-```
-
-### Step 9: 构建 novelty_matrix.json
-
-命令：
-
-```bash
-python scripts/novelty_matrix.py --profile invention_profile.json --prior-art-full prior_art_full.json --min-claims-ok-ratio 0.3 --fail-on-low-claims --out novelty_matrix.json
-```
-
-终端示例：
-
-```text
-[ok] features: 8, documents: 10
-[ok] claims gate: 7/10=0.700 (min=0.300, pass=True)
-[ok] out: novelty_matrix.json
-```
-
-产物：`novelty_matrix.json`
-
-```json
-{
-  "quality_gate": {
-    "claims_ok": 7,
-    "claims_total": 10,
-    "claims_ok_ratio": 0.7,
-    "min_claims_ok_ratio": 0.3,
-    "pass": true
-  },
-  "top_prior_art": [
-    {
-      "patent_number": "CN114567890A",
-      "title": "一种任务调度方法及装置",
-      "overall_match": 4.83
-    }
-  ],
-  "novelty_candidates": [
-    {
-      "feature_id": "F2",
-      "feature": "使用反馈回路动态调整权重",
-      "no_ratio": 0.6,
-      "partial_ratio": 0.2
-    }
-  ],
-  "pair_candidates": [
-    {
-      "pair": ["F2", "F5"],
-      "union_ratio": 0.7,
-      "co_ratio": 0.1
-    }
-  ]
-}
-```
-
-### Step 10: 让 LLM 产出结构化结论和结构化交底内容
-
-输入：
-1. `invention_profile.json`
-2. `prior_art.json`
-3. `prior_art_full.json`
-4. `novelty_matrix.json`
-5. `templates/disclosure_template_cn_invention.md`
-6. `references/06_novelty_playbook.md`
-7. `references/07_novelty_findings_output.md`
-8. `templates/disclosure_structured_template.json`
 
 输出：
-1. `novelty_findings.json`（符合 `references/schemas/novelty_findings.schema.json`）
-2. `disclosure.json`（符合 `references/schemas/disclosure.schema.json`）
-3. `missing_info.md`（如果仍有缺口）
+- `prior_art.json`
+- `prior_art.failures.json`
 
-`disclosure.json` 最小示例：
-
-```json
-{
-  "meta": {
-    "date": "2026-02-22",
-    "repo_url": "https://github.com/example/project.git",
-    "commit_sha": "7d8a3d9c6e..."
-  },
-  "title": "一种面向异构任务的自适应调度方法",
-  "technical_field": "分布式计算中的任务调度",
-  "background": ["现有方案难以兼顾吞吐与时延"],
-  "core_problem": "多目标约束下调度稳定性不足",
-  "solution_overview": "引入反馈闭环与差异化重试机制",
-  "key_features": [
-    {"id": "F1", "text": "按任务画像分层入队", "evidence_ids": ["E0001"]}
-  ],
-  "benefits": ["提升峰值负载下的调度稳定性"],
-  "implementation": ["构建多队列调度器并按优先级分发任务"],
-  "variants": ["可替换为基于成本函数的调权策略"],
-  "keywords": {
-    "cn": ["调度", "重试"],
-    "en": ["scheduler", "retry"]
-  },
-  "search_and_novelty": {
-    "search_queries": ["调度 重试 反馈控制"],
-    "top_prior_art": [
-      {
-        "patent_number": "CN114567890A",
-        "title": "一种任务调度方法及装置",
-        "url": "https://patents.google.com/patent/CN114567890A",
-        "why_close": "覆盖了基础调度框架"
-      }
-    ],
-    "matrix_summary": ["F2 在 Top3 对比文献中均为 NO/PARTIAL"],
-    "novelty_points": [
-      {
-        "id": "NP1",
-        "feature_combination": "F2+F5",
-        "statement": "反馈闭环与差异化重试的联动机制",
-        "evidence": ["CN114567890A: F2=NO"],
-        "risk": "建议复核最接近文献独权"
-      }
-    ],
-    "risks_and_actions": ["扩展同义词检索并增加TopK"]
-  },
-  "evidence_index": ["E0001: src/pipeline/scheduler.py:45"],
-  "missing_info": ["缺少对比实验参数范围"]
-}
-```
-
-`novelty_findings.json` 最小示例：
-
-```json
-{
-  "generated_at": "2026-02-22T02:30:00Z",
-  "scope": {
-    "repo_url": "https://github.com/example/project.git",
-    "commit_sha": "7d8a3d9c6e...",
-    "country": "CN",
-    "search_sources": ["google"],
-    "topk_claims": 10
-  },
-  "closest_prior_art": [
-    {
-      "patent_number": "CN114567890A",
-      "title": "一种任务调度方法及装置",
-      "url": "https://patents.google.com/patent/CN114567890A",
-      "why_close": "覆盖了F1/F3，但未覆盖F2的反馈机制"
-    }
-  ],
-  "novelty_points": [
-    {
-      "id": "NP1",
-      "feature_ids": ["F2", "F5"],
-      "statement": "引入反馈闭环与差异化重试策略的组合",
-      "differential": "最接近文献未公开两者联动机制",
-      "supporting_prior_art": [
-        {
-          "patent_number": "CN114567890A",
-          "url": "https://patents.google.com/patent/CN114567890A",
-          "matrix_evidence": [
-            {"feature_id": "F2", "label": "NO", "score_best": 0.12}
-          ]
-        }
-      ],
-      "supporting_snippets": ["...claims snippet..."],
-      "confidence": "medium",
-      "notes": "建议人工复核独权文本"
-    }
-  ],
-  "risks": [
-    {
-      "type": "needs_full_text_review",
-      "description": "部分文献仅抓取到摘要级描述",
-      "impact": "medium"
-    }
-  ],
-  "actions": [
-    {
-      "action": "补充Top20文献独立权利要求精读",
-      "priority": 1,
-      "owner": "agent"
-    }
-  ],
-  "evidence_trace": {
-    "inputs": {
-      "invention_profile": "invention_profile.json",
-      "prior_art": "prior_art.json",
-      "prior_art_full": "prior_art_full.json",
-      "novelty_matrix": "novelty_matrix.json"
-    },
-    "outputs": {
-      "novelty_findings": "novelty_findings.json",
-      "disclosure_md": "disclosure.md"
-    }
-  }
-}
-```
-
-### Step 11: 构建交底 Markdown + 运行报告分流（必须）
-
-命令：
-
-```bash
-python scripts/disclosure_builder.py --in disclosure.json --out-md disclosure.md --strict
-python scripts/run_report_builder.py --repo-meta .patent_assistant/repo_meta.json --queries queries.json --prior-art prior_art.json --prior-art-full prior_art_full.json --novelty-matrix novelty_matrix.json --failures prior_art.failures.json --out run_report.md
-```
-
-终端示例：
-
-```text
-[ok] out-md: disclosure.md
-[ok] out: run_report.md
-```
-
-说明：
-1. `disclosure_builder.py` 会拦截流程日志词（如 `agent`、`query_builder`、`claims_ok_ratio`）进入交底正文。
-2. 执行过程信息统一保存在 `run_report.md`，不进入 `disclosure.md`。
-
-### Step 12: 渲染 Word 交底书
-
-命令：
-
-```bash
-python scripts/docx_renderer.py --input disclosure.md --output disclosure.docx
-```
-
-终端示例：
-
-```text
-[ok] written: disclosure.docx
-```
-
-最终交付物：
-1. `disclosure.docx`
-2. `novelty_findings.json`
-3. `disclosure.json`
-4. `run_report.md`
-5. `novelty_matrix.json`
-6. `prior_art_full.json`
-7. `missing_info.md`（如有）
-
-## 关键门禁与失败处理
-
-1. `query_builder.py --strict`：无有效 query 直接失败。
-2. `patent_search.py --fail-on-empty`：无召回直接失败。
-3. `patent_search.py --fail-on-low-recall`：唯一专利数不足失败。
-4. `patent_fetch_claims.py --require-min-ok-ratio`：claims 质量不足失败。
-5. `novelty_matrix.py --fail-on-low-claims`：claims 质量门禁失败即停止。
-
-推荐策略：失败时不要跳步，先修复上一步输入再继续。
-
-## 常见问题
-
-1. 检索结果少：提高 query 质量，扩展同义词，增加 `-s all` 多源召回。
-2. claims 抓取失败：使用 `manual_claims_template.py` 走人工补录再合并。
-3. 文档乱码：统一 UTF-8 编码（含 BOM 文件可读，脚本支持 `utf-8-sig`）。
-4. docx 生成失败：安装 `python-docx`。
-
-## 合规声明
-
-1. 本项目输出为“技术与检索辅助结果”，不构成法律意见。
-2. 新颖性与创造性结论应由专利代理人结合完整对比文献最终确认。
-
-## Strict Workflow Policy (v5.1)
-- `prior_art.json` must be generated by real search execution, not handcrafted data.
-- Enable strict source integrity in Step 7 (`--strict-source-integrity`).
-- Manual claims补录必须可追溯：每条至少包含 `claims_source_url` 和 `claims_source_type`。
-- 若检索接口被封禁，流程应报告阻塞并请求可访问链接/PDF，不得伪造 prior art。
-- Recommended strict flags:
-  - `python scripts/patent_search.py ... --strict-source-integrity --fail-on-empty --fail-on-low-recall`
-  - `python scripts/manual_claims_template.py ... --strict-source-integrity`
-  - `python scripts/patent_fetch_claims.py ... --strict-prior-art --strict-manual-evidence`
-
-## 检索部分详细更新（v5.2）
-
-本节仅说明“检索与 claims 抓取”阶段，和当前脚本实现保持一致。
-
-### 1) 检索词准备（agent-first）
-
-命令示例：
-
-```bash
-python scripts/query_builder.py \
-  --profile invention_profile.json \
-  --agent-queries queries.agent.json \
-  --query-source auto \
-  --min-agent-queries 4 \
-  --strict \
-  --out queries.json
-```
-
-关键规则：
-- `query-source=auto`：优先使用 agent 生成的检索词。
-- 当有效 agent query 少于 `min-agent-queries=4` 时，自动合并 profile 回退，不跨步骤跳过检索。
-- `--strict` 下若最终无有效 query，直接失败。
-- query 质量门槛：`min_query_tokens>=2`，并过滤乱码/低信息检索式。
-
-输出示例（`queries.json`）：
-
-```json
-[
-  "industrial telemetry data system",
-  "edge orchestration workload scheduling",
-  "distributed task execution with SLA",
-  "cloud edge bid based function dispatch"
-]
-```
-
-### 2) 专利召回（Step 7）
-
-命令示例：
-
-```bash
-python scripts/patent_search.py \
-  --queries queries.json \
-  -s all -c CN -n 30 -a \
-  --strict-source-integrity \
-  --fail-on-empty \
-  --min-unique-patents 10 \
-  --fail-on-low-recall \
-  --out-json prior_art.json \
-  --failures-json prior_art.failures.json
-```
-
-当前门禁：
-- 来源完整性门禁：`--strict-source-integrity`（默认开启）。
-- 空召回门禁：`--fail-on-empty`，0 条结果失败（exit code `2`）。
-- 唯一专利门禁：`--min-unique-patents 10` + `--fail-on-low-recall`，不足失败（exit code `3`）。
-- 检索源支持：`google / lens / espacenet / cnipa / all`。
-
-输出示例（终端）：
+终端示例（真实风格）：
 
 ```text
 [ok] total items: 60
@@ -733,40 +277,28 @@ python scripts/patent_search.py \
 [ok] source failures: 3
 ```
 
-输出文件：
-- `prior_art.json`：去重后的召回记录（含 `query`、`query_index` 追溯字段）
-- `prior_art.failures.json`：各源失败日志（HTTP 状态、错误原因）
+门禁（关键）：
+- `--strict-source-integrity`（默认开）：禁止 synthetic/manual/fallback 等来源。
+- `--fail-on-empty`：0 条结果返回 exit code `2`。
+- `--fail-on-low-recall + --min-unique-patents 10`：唯一专利数不足返回 exit code `3`。
 
-### 3) 自动抓取 claims（Step 8A）
+---
 
-命令示例：
+## 8A. 🧲 自动抓取 claims（Step 8A）
+
+目标：
+- 对 TopK 对比文献抓取 claims，输出 `prior_art_full.json`。
+
+命令：
 
 ```bash
-python scripts/patent_fetch_claims.py \
-  --in prior_art.json \
-  --topk 10 \
-  --claim-sources auto \
-  --strict-prior-art \
-  --strict-manual-evidence \
-  --require-min-ok-ratio 0.3 \
-  --out prior_art_full.json \
-  --cache-dir .patent_assistant/patent_cache
+python -m scripts.patent_fetch_claims --in prior_art.json --topk 10 --claim-sources auto --strict-prior-art --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json --cache-dir .patent_assistant/patent_cache
 ```
 
-当前门禁：
-- `strict-prior-art`：校验输入 `prior_art.json` 必须为真实来源，且含 `query` / `query_index`。
-- 抓取范围：TopK 默认 `10`。
-- claims 通过率门禁：`ok_ratio >= 0.3`（`ok/ok_fallback/manual_ok` 计入通过），否则失败（exit code `2`）。
+输出：
+- `prior_art_full.json`
 
-自动源路由（已更新）：
-- US/JP/KR/DE/FR/GB：`fpo -> google -> espacenet -> lens -> cnipa`
-- EP/WO：`espacenet -> google -> lens -> cnipa -> fpo`
-- CN：`cnipa -> google -> espacenet -> lens -> fpo`
-
-说明：
-- 新增 `fpo`（FreePatentsOnline）作为严格回退源，解决 Google/Espacenet 详情页被封导致的 claims 抓取失败。
-
-输出示例（终端）：
+终端示例：
 
 ```text
 [ok] fetched claims: 7/10 (ratio=0.700)
@@ -774,32 +306,335 @@ python scripts/patent_fetch_claims.py \
 [ok] out: prior_art_full.json
 ```
 
-### 4) 自动失败时的 agent 接管（Step 8B）
+门禁（关键）：
+- `--strict-prior-art`（默认开）：输入必须通过来源与追溯校验。
+- `--require-min-ok-ratio 0.3`：`ok/ok_fallback/manual_ok` 比例低于阈值返回 exit code `2`。
 
-流程：
-1. 生成模板：`manual_claims_template.py --topk 10`
-2. agent 逐条检索并补录 `claims_manual.json`
-3. 用 `patent_fetch_claims.py --manual-claims` 合并回 `prior_art_full.json`
+自动源路由（当前实现）：
+- US/JP/KR/DE/FR/GB：`fpo -> google -> espacenet -> lens -> cnipa`
+- EP/WO：`espacenet -> google -> lens -> cnipa -> fpo`
+- CN：`cnipa -> google -> espacenet -> lens -> fpo`
 
-严格证据门禁（必须）：
-- 每条补录必须包含 `claims_source_url`（可访问证据链接）
-- `claims_source_type` 必须属于：
-  `google_patents | office_portal | pdf_copy | freepatentsonline`
-- 不满足时，严格模式直接失败，不允许“无证据合并”。
+---
 
-### 5) 下游二次门禁（Step 9 前）
+## 8B. 🛠️ 自动失败后的 agent 接管（必须可追溯）
 
-`novelty_matrix.py` 会再次执行 claims 质量门禁：
-- `--min-claims-ok-ratio 0.3 --fail-on-low-claims`
-- 未达标即停止，不进入交底正文生成。
+目标：
+- 在 403/412/503 等拦截下，继续完成 claims 回填而不伪造数据。
 
-## Strict Workflow Policy (v5.2)
-- `prior_art.json` must be generated by real search execution, not handcrafted data.
-- Enable strict source integrity in Step 7 (`--strict-source-integrity`).
-- Manual claims completion must be traceable: each item must include `claims_source_url` and `claims_source_type` (`google_patents|office_portal|pdf_copy|freepatentsonline`).
-- If endpoints are blocked, explicitly report the blocker and request user-provided accessible links/PDF; do not fabricate prior-art entries.
-- Step 8 auto claim-source routing now includes `fpo` (FreePatentsOnline) as a strict fallback for US publication/grant claim pages.
-- Recommended strict flags:
-  - `python scripts/patent_search.py ... --strict-source-integrity --fail-on-empty --fail-on-low-recall`
-  - `python scripts/manual_claims_template.py ... --strict-source-integrity`
-  - `python scripts/patent_fetch_claims.py ... --strict-prior-art --strict-manual-evidence`
+步骤 1：生成回填模板
+
+```bash
+python -m scripts.manual_claims_template --in prior_art.json --topk 10 --out claims_manual.json --out-md claims_manual_checklist.md --strict-source-integrity
+```
+
+步骤 2：agent 按 checklist 补录 claims（不是让用户手工逐条编辑）
+
+步骤 3：合并回 `prior_art_full.json`
+
+```bash
+python -m scripts.patent_fetch_claims --in prior_art.json --topk 10 --resume --manual-claims claims_manual.json --strict-manual-evidence --require-min-ok-ratio 0.3 --out prior_art_full.json
+```
+
+严格证据字段（必须）：
+- `claims_source_url`：可访问证据链接（http/https）
+- `claims_source_type`：`google_patents | office_portal | pdf_copy | freepatentsonline`
+
+---
+
+## 9. 📊 生成 claims-first 对比矩阵（Step 9）
+
+目标：
+- 产出特征×文献对比矩阵，并做 claims 质量二次门禁。
+
+命令：
+
+```bash
+python -m scripts.novelty_matrix --profile invention_profile.json --prior-art-full prior_art_full.json --min-claims-ok-ratio 0.3 --fail-on-low-claims --out novelty_matrix.json
+```
+
+输出：
+- `novelty_matrix.json`
+
+终端示例：
+
+```text
+[ok] features: 10, documents: 10
+[ok] claims gate: 7/10=0.700 (min=0.300, pass=True)
+[ok] out: novelty_matrix.json
+```
+
+门禁：
+- `--fail-on-low-claims` 开启时，低于 `--min-claims-ok-ratio` 直接失败。
+
+---
+
+## 10. 📝 交底内容生成（LLM 步骤）
+
+目标：
+- 结合 `invention_profile + prior_art + prior_art_full + novelty_matrix` 输出交底正文 Markdown。
+
+建议输入：
+- `templates/disclosure_template_cn_invention.md`
+- `references/06_novelty_playbook.md`
+- `references/07_novelty_findings_output.md`
+
+输出：
+- `disclosure.md`
+
+---
+
+## 11. 📄 渲染 Word（宋体）
+
+命令：
+
+```bash
+python -m scripts.docx_renderer --input disclosure.md --output disclosure.docx --font-name 宋体
+```
+
+输出：
+- `disclosure.docx`
+
+终端示例：
+
+```text
+[ok] written: disclosure.docx
+```
+
+说明：
+- 默认字体就是 `宋体`，`--font-name` 可显式指定。
+
+---
+
+## 📦 关键产物总览
+
+- `.patent_assistant/repo_meta.json`
+- `.patent_assistant/repo_index.json`
+- `.patent_assistant/evidence.json`
+- `invention_profile.json`
+- `queries.json`
+- `prior_art.json`
+- `prior_art.failures.json`
+- `prior_art_full.json`
+- `claims_manual.json`（仅当自动抓取不足时）
+- `novelty_matrix.json`
+- `disclosure.md`
+- `disclosure.docx`
+
+---
+
+## 🧰 脚本总览（功能 + 参数详解）
+
+> 下述参数均为当前代码实现（`scripts/`）的真实参数。
+
+## `scripts/repo_fetcher.py`
+
+功能：
+- 拉取远程仓库或复制本地仓库到工作目录，并记录 commit 到 `repo_meta.json`。
+
+常用命令：
+
+```bash
+python -m scripts.repo_fetcher --repo <repo_url_or_local_path> --ref main --workdir .patent_assistant --force
+```
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--repo` | 是 | - | Git URL 或本地路径 |
+| `--ref` | 否 | `None` | 分支/标签/提交 |
+| `--workdir` | 否 | `.patent_assistant` | 工作目录 |
+| `--dest` | 否 | `repo` | 输出子目录名 |
+| `--force` | 否 | `False` | 覆盖已有目录 |
+| `--clone-retries` | 否 | `3` | 克隆重试次数 |
+| `--clone-backoff` | 否 | `2.0` | 克隆重试退避系数 |
+
+## `scripts/repo_indexer.py`
+
+功能：
+- 扫描仓库，构建文件元数据、入口点和文档索引。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--repo` | 是 | - | 本地仓库路径 |
+| `--out` | 是 | - | `repo_index.json` 输出路径 |
+| `--max_files` | 否 | `5000` | 最大索引文件数 |
+| `--max_doc_headings` | 否 | `60` | 每个文档最多记录标题数 |
+
+## `scripts/evidence_builder.py`
+
+功能：
+- 按 `reading_plan.json` 从仓库抽取片段，生成证据列表 `evidence.json`。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--repo` | 是 | - | 本地仓库路径 |
+| `--index` | 是 | - | `repo_index.json` |
+| `--plan` | 是 | - | `reading_plan.json` |
+| `--out` | 是 | - | `evidence.json` |
+| `--max_chunk_chars` | 否 | 脚本内置常量 | 单片段最大字符数 |
+
+## `scripts/query_builder.py`
+
+功能：
+- 基于 `invention_profile` 生成检索词，并可融合 `queries.agent.json`。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--profile` | 是 | - | `invention_profile.json` |
+| `--agent-queries` | 否 | `queries.agent.json` | agent 检索词文件（list 或 `{queries:[]}`） |
+| `--query-source` | 否 | `auto` | `auto/agent/profile` |
+| `--min-agent-queries` | 否 | `4` | auto 模式下 agent 主导阈值 |
+| `--merge-profile` / `--no-merge-profile` | 否 | `True` | 是否合并 profile 检索词 |
+| `--out` | 是 | - | `queries.json` |
+| `--max-queries` | 否 | `8` | 最大检索词数 |
+| `--min-query-tokens` | 否 | `2` | 低于该 token 数会被过滤 |
+| `--strict` / `--no-strict` | 否 | `True` | 无有效 query 是否失败 |
+
+## `scripts/patent_search.py`
+
+功能：
+- 多源检索专利并去重，输出 `prior_art.json` 和失败日志。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--queries` | 否 | - | `queries.json` |
+| `query` | 否 | - | 单条检索词（位置参数） |
+| `--limit`, `-n` | 否 | `30` | 每条 query 的召回上限 |
+| `--country`, `-c` | 否 | `CN` | 国家/地区偏好 |
+| `--source`, `-s` | 否 | `google` | `google/lens/espacenet/cnipa/all` |
+| `--analyze`, `-a` | 否 | `False` | 按相似度排序 |
+| `--parallel`, `-p` | 否 | `False` | 多源并发请求 |
+| `--timeout` | 否 | `45` | HTTP 超时秒数 |
+| `--retries` | 否 | `4` | 重试次数 |
+| `--backoff` | 否 | `1.8` | 退避系数 |
+| `--jitter` | 否 | `0.25` | 重试抖动 |
+| `--query-sleep` | 否 | `2.0` | query 间隔 |
+| `--query-jitter` | 否 | `0.3` | query 间隔抖动 |
+| `--min-query-tokens` | 否 | `2` | query 质量门限 |
+| `--strict-query-quality` / `--no-strict-query-quality` | 否 | `True` | 全部 query 被丢弃是否失败 |
+| `--strict-source-integrity` / `--no-strict-source-integrity` | 否 | `True` | 来源完整性门禁 |
+| `--fail-on-empty` | 否 | `False` | 空召回失败（exit 2） |
+| `--min-unique-patents` | 否 | `0` | 唯一专利数门槛 |
+| `--fail-on-low-recall` | 否 | `False` | 低召回失败（exit 3） |
+| `--out-json` | 否 | `None` | 输出 `prior_art.json` |
+| `--out-md` | 否 | `None` | 输出 Markdown 列表 |
+| `--failures-json` | 否 | `None` | 输出失败明细 JSON |
+
+## `scripts/patent_fetch_claims.py`
+
+功能：
+- 抓取 TopK 文献 claims，支持缓存、断点续跑、手工回填合并与严格证据门禁。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--in` | 是 | - | `prior_art.json` |
+| `--topk` | 否 | `10` | 抓取文献数 |
+| `--out` | 是 | - | `prior_art_full.json` |
+| `--cache-dir` | 否 | `.patent_assistant/patent_cache` | HTML 缓存目录 |
+| `--sleep` | 否 | `1.0` | 请求间隔秒数 |
+| `--force` | 否 | `False` | 忽略缓存重抓 |
+| `--timeout` | 否 | `40` | HTTP 超时 |
+| `--retries` | 否 | `4` | 重试次数 |
+| `--backoff` | 否 | `1.8` | 退避系数 |
+| `--jitter` | 否 | `0.25` | 抖动 |
+| `--claim-sources` | 否 | `auto` | `google,espacenet,cnipa,lens,fpo` 子集或 `auto` |
+| `--resume` / `--no-resume` | 否 | `True` | 复用既有 `--out` 结果 |
+| `--manual-claims` | 否 | `None` | 合并手工 claims JSON |
+| `--require-min-ok-ratio` | 否 | `0.0` | 最低通过率门槛（低于 exit 2） |
+| `--strict-prior-art` / `--no-strict-prior-art` | 否 | `True` | prior_art 完整性门禁 |
+| `--strict-manual-evidence` / `--no-strict-manual-evidence` | 否 | `True` | 手工证据字段强校验 |
+
+## `scripts/manual_claims_template.py`
+
+功能：
+- 从 `prior_art.json` 生成接管模板和 checklist。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--in` | 是 | - | `prior_art.json` |
+| `--topk` | 否 | `10` | 生成模板条数 |
+| `--out` | 是 | - | `claims_manual.json` |
+| `--out-md` | 否 | `None` | `claims_manual_checklist.md` |
+| `--strict-source-integrity` / `--no-strict-source-integrity` | 否 | `True` | prior_art 来源门禁 |
+
+## `scripts/novelty_matrix.py`
+
+功能：
+- 生成 claims-first 特征对比矩阵，并输出 `quality_gate` 统计。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--profile` | 是 | - | `invention_profile.json` |
+| `--prior-art-full` | 是 | - | `prior_art_full.json` |
+| `--out` | 是 | - | `novelty_matrix.json` |
+| `--max-docs` | 否 | `10` | 参与矩阵文献数 |
+| `--min-claims-ok-ratio` | 否 | `0.3` | claims 通过率阈值 |
+| `--fail-on-low-claims` / `--no-fail-on-low-claims` | 否 | `False` | 低于阈值是否失败 |
+
+## `scripts/docx_renderer.py`
+
+功能：
+- 将 `disclosure.md` 渲染为 `.docx`，支持统一字体（默认宋体）。
+
+参数：
+
+| 参数 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `--input`, `-i` | 是 | - | 输入 Markdown（`disclosure.md`） |
+| `--output`, `-o` | 是 | - | 输出 Word 路径 |
+| `--font-name` | 否 | `宋体` | 输出字体 |
+
+---
+
+## 🚦关键门禁与失败码
+
+- `query_builder --strict`：无有效 query 失败。
+- `patent_search --fail-on-empty`：返回码 `2`。
+- `patent_search --fail-on-low-recall --min-unique-patents N`：返回码 `3`。
+- `patent_fetch_claims --require-min-ok-ratio X`：返回码 `2`。
+- `novelty_matrix --fail-on-low-claims`：低于阈值时报错退出。
+
+---
+
+## 🧷 严格模式策略（v5.2）
+
+- 不允许伪造 `prior_art.json`。
+- 检索与 claims 阶段必须保留 `query` / `query_index` 追溯链路。
+- 手工回填 claims 必须带证据来源字段。
+- 被站点拦截时应报告 blocker，并请求可访问链接/PDF，不得合成结果。
+
+---
+
+## ❓常见问题
+
+Q: 为什么会出现“检索成功但 claims 很低”？  
+A: 通常是专利详情页被拦截（403/412/503）或页面结构差异。先启用 `fpo` 回退，再进入 Step 8B 接管补录。
+
+Q: 最终 Word 字体如何固定宋体？  
+A: `docx_renderer` 默认就是宋体；也可显式传 `--font-name 宋体`。
+
+Q: 能否只跑检索与 claims？  
+A: 可以。最小链路是 `query_builder -> patent_search -> patent_fetch_claims`。
+
+---
+
+## ⚖️ 合规说明
+
+- 本项目输出用于技术整理与检索辅助，不构成法律意见。
+- 新颖性/创造性的最终结论应由专利代理人结合完整对比文件确认。
